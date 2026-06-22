@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1:1 대결 빙고 게임</title>
+    
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #2E7D32;
+            --bg-color: #f4f7f6;
+            --box-bg: #ffffff;
+            --text-color: #333333;
+        }
+        body { 
+            font-family: 'Malgun Gothic', sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-color); 
+            text-align: center; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: var(--box-bg); 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+        }
+        .screen { display: none; animation: fadeIn 0.5s ease; }
+        .screen.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        h1, h2 { color: var(--primary-color); }
+        input, select, button { 
+            padding: 10px; 
+            margin: 5px; 
+            border-radius: 6px; 
+            border: 1px solid #ccc; 
+            font-size: 16px; 
+        }
+        button { 
+            background-color: var(--primary-color); 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            transition: background-color 0.3s; 
+            font-weight: bold;
+        }
+        button:hover { background-color: var(--secondary-color); }
+        button:disabled { background-color: #a5d6a7; cursor: not-allowed; }
+        .form-group { margin-bottom: 15px; }
+        
+        /* 빙고판 스타일 */
+        .bingo-board { 
+            display: grid; 
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 5px; 
+            margin-top: 20px; 
+            user-select: none;
+        }
+        .bingo-cell { 
+            background: #e9ecef; 
+            border: 2px solid #dee2e6; 
+            border-radius: 8px; 
+            height: 70px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            font-weight: bold; 
+            font-size: 14px; 
+            word-break: keep-all;
+            transition: transform 0.1s, background-color 0.3s;
+        }
+        .bingo-cell:active { transform: scale(0.95); }
+        .bingo-cell.marked { 
+            background: var(--primary-color); 
+            color: white; 
+            border-color: var(--secondary-color); 
+        }
+        
+        /* 가위바위보 및 모달 스타일 */
+        .rps-buttons button { font-size: 40px; padding: 20px 30px; margin: 10px; }
+        #status-message { font-weight: bold; color: #e74c3c; margin: 15px 0; min-height: 24px;}
+        
+        /* 커스텀 알림창 (alert 대체) */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal-content {
+            background: white; padding: 25px; border-radius: 12px; width: 80%; max-width: 320px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .modal-content p { margin-bottom: 20px; font-size: 16px; line-height: 1.5; }
+        
+        .word-btn { background-color: #f1c40f; color: #333; margin: 3px; padding: 8px 12px;}
+        .word-btn:hover { background-color: #f39c12; }
+        
+        /* 빙고 완성 효과 */
+        .bingo-success { color: #e74c3c; animation: pop 0.5s infinite alternate; }
+        @keyframes pop { from { transform: scale(1); } to { transform: scale(1.1); } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="status-message"></div>
+
+    <!-- 1. 로그인 화면 -->
+    <div id="login-screen" class="screen active">
+        <h1>1:1 빙고 대결 🎮</h1>
+        <div class="form-group">
+            <select id="grade">
+                <option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option>
+                <option value="4">4학년</option><option value="5">5학년</option><option value="6" selected>6학년</option>
+            </select>
+            <select id="classNum">
+                <option value="1">1반</option><option value="2">2반</option><option value="3">3반</option>
+                <option value="4">4반</option><option value="5">5반</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <input type="number" id="studentNum" placeholder="번호 (예: 1)" style="width: 100px;">
+            <input type="text" id="studentName" placeholder="이름 (예: 홍길동)">
+        </div>
+        <button onclick="window.joinGame()" style="width: 200px; padding: 15px; font-size: 18px;">게임 입장</button>
+        <div style="margin-top: 40px; border-top: 1px solid #ddd; padding-top: 20px;">
+            <button onclick="window.showScreen('admin-login-screen')" style="background-color: #7f8c8d;">👨‍🏫 교사 모드</button>
+        </div>
+    </div>
+
+    <!-- 2. 교사 모드 로그인 및 설정 화면 -->
+    <div id="admin-login-screen" class="screen">
+        <h2>교사 모드 인증</h2>
+        <p>초기 비밀번호는 <strong>1234</strong> 입니다.</p>
+        <input type="password" id="adminPwInput" placeholder="비밀번호 입력">
+        <button onclick="window.verifyAdmin()">확인</button>
+        <button onclick="window.showScreen('login-screen')" style="background-color: #95a5a6;">돌아가기</button>
+    </div>
+
+    <div id="admin-settings-screen" class="screen">
+        <h2>⚙️ 교사 설정 모드</h2>
+        <div class="form-group" style="background: #e8f4f8; padding: 15px; border-radius: 8px;">
+            <label><strong>비밀번호 변경:</strong></label>
+            <input type="text" id="newAdminPw" placeholder="새 비밀번호">
+            <button onclick="window.changeAdminPw()" style="background-color: #2980b9;">변경</button>
+        </div>
+        <div class="form-group">
+            <label><strong>단원명:</strong></label><br>
+            <input type="text" id="unitNameInput" style="width: 80%;" placeholder="예: 1단원. 우리말의 비밀">
+        </div>
+        <div class="form-group">
+            <label><strong>빙고 단어 (쉼표로 구분, 최소 25개):</strong></label><br>
+            <textarea id="wordListInput" rows="6" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc;"></textarea>
+            <p id="word-count-info" style="font-size: 14px; color: #7f8c8d;">현재 입력된 단어: 0개</p>
+        </div>
+        <button onclick="window.saveAdminSettings()" style="width: 150px; padding: 12px;">설정 저장</button>
+        <button onclick="window.showScreen('login-screen')" style="background-color: #95a5a6;">메인으로</button>
+    </div>
+
+    <!-- 3. 빙고판 준비 화면 -->
+    <div id="setup-screen" class="screen">
+        <h2 id="setup-unit-name">단원명</h2>
+        <p>단어를 클릭하여 빙고판 25칸을 모두 채워주세요.</p>
+        <div id="word-pool" style="display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-bottom: 15px; max-height: 150px; overflow-y: auto; background: white; padding: 10px; border-radius: 8px; border: 1px solid #ddd;"></div>
+        <div id="setup-board" class="bingo-board"></div>
+        <br>
+        <button id="ready-btn" onclick="window.setReady()" style="width: 200px; padding: 15px; font-size: 18px;">준비 완료!</button>
+    </div>
+
+    <!-- 4. 가위바위보 화면 -->
+    <div id="rps-screen" class="screen">
+        <h2>✌️✊🖐️ 선공 결정!</h2>
+        <h3 id="rps-opponent-name" style="color: #2c3e50;">상대방과 연결되었습니다.</h3>
+        <p>가위바위보를 선택하세요.</p>
+        <div class="rps-buttons" id="rps-buttons-container">
+            <button onclick="window.selectRPS('scissors')">✌️</button>
+            <button onclick="window.selectRPS('rock')">✊</button>
+            <button onclick="window.selectRPS('paper')">🖐️</button>
+        </div>
+        <div id="rps-wait-msg" style="display:none; margin-top: 20px;">
+            <div style="font-size: 50px; animation: pop 1s infinite alternate;">⏳</div>
+            <p>상대방의 선택을 기다리는 중...</p>
+        </div>
+    </div>
+
+    <!-- 5. 게임 진행 화면 -->
+    <div id="game-screen" class="screen">
+        <h2 id="game-title">🔥 빙고 대결 중!</h2>
+        <div style="display: flex; justify-content: space-around; background: #e8f4f8; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <div style="font-weight: bold; color: var(--primary-color);">나의 빙고: <span id="my-bingo-count" style="font-size: 24px;">0</span> 줄</div>
+            <div style="font-weight: bold; color: #e74c3c;">상대 빙고: <span id="opp-bingo-count" style="font-size: 24px;">?</span> 줄</div>
+        </div>
+        <p>목표: <strong style="color:#e74c3c;">3줄</strong> 완성하기!</p>
+        <div id="game-board" class="bingo-board"></div>
+    </div>
+    
+    <!-- 6. 게임 종료 화면 -->
+    <div id="result-screen" class="screen">
+        <h1 id="result-message" style="font-size: 40px; margin-top: 50px;"></h1>
+        <button onclick="location.reload()" style="margin-top: 30px; padding: 15px 30px; font-size: 18px;">다시 하기</button>
+    </div>
+</div>
+
+<div style="text-align: center; margin-top: 20px; font-size: 13px; color: #7f8c8d; line-height: 1.6;">
+    만든이: 곽현석(이의초등학교)<br>
+    Copyright &copy; 2026 Eui Elementary School. All Rights Reserved.
+</div>
+
+<!-- 커스텀 알림창 -->
+<div id="custom-alert" class="modal">
+    <div class="modal-content">
+        <p id="alert-msg"></p>
+        <button onclick="window.closeAlert()" style="width: 100%;">확인</button>
+    </div>
+</div>
+
+<!-- Firebase SDK (v9 모듈형) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 선생님께서 제공해주신 Firebase 설정
+    const firebaseConfig = {
+      apiKey: "AIzaSyC9Qas3pt9DZITM5UZr2GxKEQvykJq_Kh0",
+      authDomain: "bingo-1707f.firebaseapp.com",
+      projectId: "bingo-1707f",
+      storageBucket: "bingo-1707f.firebasestorage.app",
+      messagingSenderId: "995876035744",
+      appId: "1:995876035744:web:84917aa4beb54a86ab7dc5",
+      measurementId: "G-XRQRK8P7HG"
+    };
+
+    // Firebase 초기화
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // 전역 변수
+    let myInfo = { name: "", room: "", id: "" };
+    let currentWords = [];
+    let myBoard = [];
+    let isMyTurn = false;
+    let roomUnsubscribe = null;
+    let isGameOver = false;
+
+    // --- 유틸리티 함수 ---
+    window.showScreen = function(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+
+    window.showStatus = function(msg) {
+        document.getElementById('status-message').innerText = msg;
+    }
+
+    window.showAlert = function(msg) {
+        document.getElementById('alert-msg').innerText = msg;
+        document.getElementById('custom-alert').style.display = 'flex';
+    }
+
+    window.closeAlert = function() {
+        document.getElementById('custom-alert').style.display = 'none';
+    }
+
+    // 단어 개수 실시간 표시 (교사 모드)
+    document.getElementById('wordListInput').addEventListener('input', function() {
+        const words = this.value.split(',').map(w => w.trim()).filter(w => w !== "");
+        document.getElementById('word-count-info').innerText = `현재 입력된 단어: ${words.length}개 (최소 25개 필요)`;
+        if(words.length >= 25) {
+            document.getElementById('word-count-info').style.color = "var(--primary-color)";
+        } else {
+            document.getElementById('word-count-info').style.color = "#e74c3c";
+        }
+    });
+
+    // 앱 시작 시 익명 로그인 시도 (Firebase 콘솔에서 Authentication -> Sign-in method -> 익명(Anonymous)을 사용 설정해야 합니다.)
+    signInAnonymously(auth).catch((error) => {
+        console.warn("익명 로그인이 비활성화되어 있거나 오류가 발생했습니다. (Firestore 규칙에 따라 데이터 접근이 제한될 수 있습니다.)", error);
+    });
+
+    // ==========================================
+    // [교사 모드 로직 (Firestore)]
+    // ==========================================
+    window.verifyAdmin = async function() {
+        const inputPw = document.getElementById('adminPwInput').value;
+        try {
+            const settingsRef = doc(db, "bingo_settings", "main");
+            const snap = await getDoc(settingsRef);
+            let realPw = '1234'; // 문서가 없을 때 초기 비번
+            
+            if (snap.exists() && snap.data().adminPassword) {
+                realPw = snap.data().adminPassword;
+            }
+
+            if (inputPw === realPw) {
+                const data = snap.exists() ? snap.data() : {};
+                document.getElementById('newAdminPw').value = data.adminPassword || '1234';
+                document.getElementById('unitNameInput').value = data.unitName || '';
+                document.getElementById('wordListInput').value = (data.wordList || []).join(', ');
+                // 트리거 발생시켜 개수 업데이트
+                document.getElementById('wordListInput').dispatchEvent(new Event('input'));
+                window.showScreen('admin-settings-screen');
+            } else {
+                window.showAlert("비밀번호가 틀렸습니다.");
+            }
+        } catch (e) {
+            window.showAlert("데이터를 불러오는 중 오류가 발생했습니다. (Firebase 규칙 설정을 확인해주세요)");
+            console.error(e);
+        }
+    }
+
+    window.changeAdminPw = async function() {
+        const newPw = document.getElementById('newAdminPw').value;
+        if(newPw.trim() === "") return window.showAlert("비밀번호를 입력하세요.");
+        
+        try {
+            const settingsRef = doc(db, "bingo_settings", "main");
+            await setDoc(settingsRef, { adminPassword: newPw }, { merge: true });
+            window.showAlert("비밀번호가 변경되었습니다.");
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    window.saveAdminSettings = async function() {
+        const unitName = document.getElementById('unitNameInput').value;
+        const words = document.getElementById('wordListInput').value.split(',').map(w => w.trim()).filter(w => w !== "");
+        
+        if(words.length < 25) {
+            return window.showAlert(`단어가 ${words.length}개입니다. 5x5 빙고를 위해 최소 25개의 단어를 입력해주세요.`);
+        }
+
+        try {
+            const settingsRef = doc(db, "bingo_settings", "main");
+            await setDoc(settingsRef, {
+                unitName: unitName,
+                wordList: words
+            }, { merge: true });
+            window.showAlert("설정이 성공적으로 저장되었습니다!");
+        } catch (e) {
+            console.error(e);
+            window.showAlert("저장 실패. (Firebase 규칙 설정을 확인해주세요)");
+        }
+    }
+
+    // ==========================================
+    // [학생 게임 로직 (Firestore)]
+    // ==========================================
+    window.joinGame = async function() {
+        const grade = document.getElementById('grade').value;
+        const classNum = document.getElementById('classNum').value;
+        const studentNum = document.getElementById('studentNum').value;
+        const studentName = document.getElementById('studentName').value;
+
+        if(!studentNum || !studentName) {
+            return window.showAlert("번호와 이름을 모두 입력해주세요.");
+        }
+
+        myInfo.name = `${grade}학년 ${classNum}반 ${studentNum}번 ${studentName}`;
+        window.showStatus("단어 데이터를 불러오는 중...");
+
+        try {
+            const settingsRef = doc(db, "bingo_settings", "main");
+            const snap = await getDoc(settingsRef);
+            
+            if(!snap.exists() || !snap.data().wordList || snap.data().wordList.length < 25) {
+                return window.showAlert("교사 모드에서 25개 이상의 빙고 단어 설정이 필요합니다.");
+            }
+            
+            const data = snap.data();
+            currentWords = data.wordList;
+            document.getElementById('setup-unit-name').innerText = data.unitName || "빙고 게임";
+            
+            await findRoom();
+        } catch (e) {
+            console.error(e);
+            window.showAlert("데이터 접근 오류. (Firestore 규칙을 확인하세요)");
+        }
+    }
+
+    async function findRoom() {
+        window.showStatus("대기 중인 방을 찾거나 생성하는 중...");
+        try {
+            const roomsRef = collection(db, "bingo_rooms");
+            // 복잡한 쿼리를 피하기 위해 전체를 가져와 메모리에서 필터링 (System Rule 2 적용)
+            const querySnapshot = await getDocs(roomsRef);
+            let joined = false;
+
+            for (const docSnap of querySnapshot.docs) {
+                const roomData = docSnap.data();
+                // 1명이 대기중인 방 찾기
+                if (roomData.status === 'waiting' && roomData.players && !roomData.players.p2) {
+                    joined = true;
+                    myInfo.room = docSnap.id;
+                    myInfo.id = 'p2';
+                    
+                    const roomDocRef = doc(db, "bingo_rooms", myInfo.room);
+                    await updateDoc(roomDocRef, {
+                        "players.p2": { name: myInfo.name, ready: false, rpsChoice: "", lines: 0 },
+                        status: "setup" // 두 명이 찼으므로 셋업 단계로
+                    });
+                    break;
+                }
+            }
+
+            if (!joined) {
+                // 방 생성 (Player 1)
+                const newRoomRef = await addDoc(roomsRef, {
+                    status: 'waiting',
+                    players: { 
+                        p1: { name: myInfo.name, ready: false, rpsChoice: "", lines: 0 } 
+                    },
+                    calledWords: [],
+                    turn: "",
+                    winner: ""
+                });
+                myInfo.room = newRoomRef.id;
+                myInfo.id = 'p1';
+            }
+            
+            initSetupBoard();
+            listenRoomChanges();
+            
+        } catch (e) {
+            console.error("방 찾기 오류:", e);
+        }
+    }
+
+    function initSetupBoard() {
+        window.showScreen('setup-screen');
+        window.showStatus("단어를 클릭하여 빙고판을 완성하세요!");
+        myBoard = new Array(25).fill("");
+        
+        const pool = document.getElementById('word-pool');
+        pool.innerHTML = '';
+        currentWords.forEach(word => {
+            const btn = document.createElement('button');
+            btn.className = 'word-btn';
+            btn.innerText = word;
+            btn.onclick = () => window.addToBoard(word, btn);
+            pool.appendChild(btn);
+        });
+
+        renderSetupBoard();
+    }
+
+    function renderSetupBoard() {
+        const boardDiv = document.getElementById('setup-board');
+        boardDiv.innerHTML = '';
+        let filledCount = 0;
+        
+        for(let i = 0; i < 25; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'bingo-cell';
+            if(myBoard[i]) {
+                cell.innerText = myBoard[i];
+                cell.classList.add('marked');
+                filledCount++;
+            }
+            cell.onclick = () => window.removeFromBoard(i);
+            boardDiv.appendChild(cell);
+        }
+        
+        const readyBtn = document.getElementById('ready-btn');
+        if(filledCount === 25) {
+            readyBtn.disabled = false;
+            readyBtn.innerText = "준비 완료!";
+        } else {
+            readyBtn.disabled = true;
+            readyBtn.innerText = `단어 채우기 (${filledCount}/25)`;
+        }
+    }
+
+    window.addToBoard = function(word, btn) {
+        const emptyIndex = myBoard.findIndex(w => w === "");
+        if(emptyIndex !== -1 && !myBoard.includes(word)) {
+            myBoard[emptyIndex] = word;
+            btn.style.display = 'none';
+            renderSetupBoard();
+        }
+    }
+
+    window.removeFromBoard = function(index) {
+        const word = myBoard[index];
+        if(word) {
+            myBoard[index] = "";
+            const poolBtns = document.getElementById('word-pool').getElementsByTagName('button');
+            for(let btn of poolBtns) {
+                if(btn.innerText === word) btn.style.display = 'inline-block';
+            }
+            renderSetupBoard();
+        }
+    }
+
+    window.setReady = async function() {
+        if(myBoard.includes("")) {
+            return window.showAlert("빙고판 25칸을 모두 채워주세요!");
+        }
+        
+        window.showStatus("상대방의 준비를 기다리는 중...");
+        document.getElementById('ready-btn').disabled = true;
+        
+        try {
+            const roomRef = doc(db, "bingo_rooms", myInfo.room);
+            await updateDoc(roomRef, {
+                [`players.${myInfo.id}.ready`]: true,
+                [`players.${myInfo.id}.board`]: myBoard
+            });
+        } catch(e) {
+            console.error(e);
+        }
+    }
+
+    // ==========================================
+    // [실시간 리스너 및 게임 진행]
+    // ==========================================
+    function listenRoomChanges() {
+        const roomRef = doc(db, "bingo_rooms", myInfo.room);
+        
+        roomUnsubscribe = onSnapshot(roomRef, (docSnap) => {
+            if (!docSnap.exists()) return;
+            const room = docSnap.data();
+
+            // 1. Setup 상태
+            if (room.status === 'setup') {
+                const p1Ready = room.players?.p1?.ready;
+                const p2Ready = room.players?.p2?.ready;
+                // 방장(p1)이 양쪽 다 준비됐는지 확인 후 상태 변경
+                if(p1Ready && p2Ready && myInfo.id === 'p1') {
+                    updateDoc(roomRef, { status: 'rps' });
+                }
+            } 
+            // 2. 가위바위보 상태
+            else if (room.status === 'rps') {
+                if(!document.getElementById('rps-screen').classList.contains('active')) {
+                    const oppId = myInfo.id === 'p1' ? 'p2' : 'p1';
+                    document.getElementById('rps-opponent-name').innerText = `${room.players[oppId].name} 님과 대결합니다!`;
+                    window.showScreen('rps-screen');
+                    window.showStatus("가위바위보로 선공을 결정합니다!");
+                }
+                
+                const c1 = room.players?.p1?.rpsChoice;
+                const c2 = room.players?.p2?.rpsChoice;
+
+                if(c1 && c2) {
+                    if (c1 === c2) {
+                        if(myInfo.id === 'p1') { // p1이 리셋 권한을 가짐
+                            setTimeout(() => {
+                                updateDoc(roomRef, { 
+                                    "players.p1.rpsChoice": "", 
+                                    "players.p2.rpsChoice": "" 
+                                });
+                            }, 1500);
+                        }
+                        window.showStatus("비겼습니다! 다시 가위바위보를 선택하세요.");
+                        document.getElementById('rps-wait-msg').style.display = 'none';
+                        document.getElementById('rps-buttons-container').style.display = 'block';
+                    } else {
+                        // 승자 판별 (p1 기준)
+                        let winner = 'p2';
+                        if ((c1 === 'rock' && c2 === 'scissors') || 
+                            (c1 === 'scissors' && c2 === 'paper') || 
+                            (c1 === 'paper' && c2 === 'rock')) {
+                            winner = 'p1';
+                        }
+                        
+                        if(myInfo.id === 'p1') {
+                            updateDoc(roomRef, { status: 'playing', turn: winner });
+                        }
+                    }
+                }
+            } 
+            // 3. 게임 진행 상태
+            else if (room.status === 'playing') {
+                if(!document.getElementById('game-screen').classList.contains('active')) {
+                    window.showScreen('game-screen');
+                }
+                
+                const called = room.calledWords || [];
+                isMyTurn = (room.turn === myInfo.id);
+                
+                if (isMyTurn) {
+                    window.showStatus("나의 차례입니다! 단어를 선택하세요. 👉");
+                    document.getElementById('game-title').innerText = "🔥 내 차례!";
+                } else {
+                    window.showStatus("상대방이 단어를 고르는 중... ⏳");
+                    document.getElementById('game-title').innerText = "💤 상대방 차례";
+                }
+
+                // 빙고 줄 수 계산
+                const myLines = calculateBingo(called, myBoard);
+                const oppId = myInfo.id === 'p1' ? 'p2' : 'p1';
+                const oppLines = room.players[oppId].lines || 0;
+                
+                document.getElementById('my-bingo-count').innerText = myLines;
+                document.getElementById('opp-bingo-count').innerText = oppLines;
+
+                // 내 빙고수 DB 업데이트 (변경된 경우만)
+                if(room.players[myInfo.id].lines !== myLines) {
+                    updateDoc(roomRef, { [`players.${myInfo.id}.lines`]: myLines });
+                }
+
+                // 3줄 빙고 완성 체크
+                if(myLines >= 3 && !isGameOver) {
+                    isGameOver = true;
+                    updateDoc(roomRef, { status: 'finished', winner: myInfo.name });
+                }
+
+                renderGameBoard(called);
+            }
+            // 4. 게임 종료 상태
+            else if (room.status === 'finished') {
+                if(roomUnsubscribe) roomUnsubscribe();
+                window.showScreen('result-screen');
+                window.showStatus("게임 종료!");
+                
+                const resMsg = document.getElementById('result-message');
+                if (room.winner === myInfo.name) {
+                    resMsg.innerHTML = "🎉 빙고 완성! 승리하셨습니다! 🎉";
+                    resMsg.className = "bingo-success";
+                } else {
+                    resMsg.innerHTML = `아쉽네요! ${room.winner} 님이 먼저 빙고를 완성했습니다.`;
+                    resMsg.style.color = "#34495e";
+                }
+            }
+        });
+    }
+
+    window.selectRPS = function(choice) {
+        document.getElementById('rps-buttons-container').style.display = 'none';
+        document.getElementById('rps-wait-msg').style.display = 'block';
+        window.showStatus("결과 판정 중...");
+        
+        const roomRef = doc(db, "bingo_rooms", myInfo.room);
+        updateDoc(roomRef, { [`players.${myInfo.id}.rpsChoice`]: choice });
+    }
+
+    function renderGameBoard(calledWords) {
+        const boardDiv = document.getElementById('game-board');
+        boardDiv.innerHTML = '';
+        
+        myBoard.forEach(word => {
+            const cell = document.createElement('div');
+            cell.className = 'bingo-cell';
+            const isCalled = calledWords.includes(word);
+            
+            if(isCalled) cell.classList.add('marked');
+            cell.innerText = word;
+            
+            cell.onclick = () => {
+                if(isMyTurn && !isCalled && !isGameOver) {
+                    const newCalled = [...calledWords, word];
+                    const nextTurn = myInfo.id === 'p1' ? 'p2' : 'p1';
+                    const roomRef = doc(db, "bingo_rooms", myInfo.room);
+                    updateDoc(roomRef, { calledWords: newCalled, turn: nextTurn });
+                }
+            };
+            boardDiv.appendChild(cell);
+        });
+    }
+
+    // 빙고 줄 수 계산 알고리즘
+    function calculateBingo(calledWords, board) {
+        if (!board || board.length < 25) return 0;
+        let lines = 0;
+        const marked = board.map(w => calledWords.includes(w));
+        
+        // 가로 5줄 검사
+        for(let i=0; i<5; i++) {
+            if(marked[i*5] && marked[i*5+1] && marked[i*5+2] && marked[i*5+3] && marked[i*5+4]) lines++;
+        }
+        // 세로 5줄 검사
+        for(let i=0; i<5; i++) {
+            if(marked[i] && marked[i+5] && marked[i+10] && marked[i+15] && marked[i+20]) lines++;
+        }
+        // 대각선 2줄 검사
+        if(marked[0] && marked[6] && marked[12] && marked[18] && marked[24]) lines++;
+        if(marked[4] && marked[8] && marked[12] && marked[16] && marked[20]) lines++;
+
+        return lines;
+    }
+
+</script>
+</body>
+</html>
