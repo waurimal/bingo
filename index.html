@@ -361,7 +361,9 @@
     const db = getFirestore(app);
     const auth = getAuth(app);
 
-    signInAnonymously(auth).catch(e => console.warn("익명 로그인 권한 경고:", e));
+    signInAnonymously(auth).catch(e => {
+        console.warn("익명 로그인 권한 경고:", e);
+    });
 
     // 전역 상태
     let myInfo = { name: "", room: "", id: "", role: "guest" };
@@ -397,18 +399,31 @@
     async function loadUnitsToSelect() {
         try {
             const snap = await getDoc(doc(db, "bingo_settings", "main"));
+            const select = document.getElementById('unit-select');
+            select.innerHTML = '<option value="">-- 단원 선택 --</option>';
+            
             if(snap.exists() && snap.data().units) {
-                adminUnits = snap.data().units;
-                const select = document.getElementById('unit-select');
-                select.innerHTML = '<option value="">-- 단원 선택 --</option>';
+                // 이전 형식의 데이터를 안전하게 매핑
+                adminUnits = snap.data().units.map(u => ({
+                    id: u.id || Date.now().toString(),
+                    name: u.name || '새 단원',
+                    type: u.type || 'pool',
+                    words: Array.isArray(u.words) ? u.words : []
+                }));
+
                 adminUnits.forEach((u, i) => {
                     const opt = document.createElement('option');
                     opt.value = i;
                     opt.text = u.name;
                     select.appendChild(opt);
                 });
+            } else {
+                select.innerHTML = '<option value="">등록된 단원이 없습니다.</option>';
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error("단원 목록 로드 실패:", e);
+            document.getElementById('unit-select').innerHTML = '<option value="">데이터 로드 실패</option>';
+        }
     }
     loadUnitsToSelect();
 
@@ -421,7 +436,6 @@
         return `${g}학년 ${c}반 ${num}번 ${name}`;
     }
 
-    // 랜덤 4자리 코드 생성
     function generateRoomCode() {
         return Math.floor(1000 + Math.random() * 9000).toString();
     }
@@ -431,24 +445,50 @@
     // ==========================================
     window.verifyAdmin = async function() {
         const inputPw = document.getElementById('adminPwInput').value;
-        const snap = await getDoc(doc(db, "bingo_settings", "main"));
-        const realPw = (snap.exists() && snap.data().adminPassword) ? snap.data().adminPassword : '1234';
+        window.showStatus("인증 확인 중...");
         
-        if (inputPw === realPw) {
-            document.getElementById('newAdminPw').value = realPw;
-            adminUnits = (snap.exists() && snap.data().units) ? snap.data().units : [];
-            renderAdminUnits();
-            window.showScreen('admin-settings-screen');
-        } else {
-            window.showAlert("비밀번호가 틀렸습니다.");
+        try {
+            const snap = await getDoc(doc(db, "bingo_settings", "main"));
+            const realPw = (snap.exists() && snap.data().adminPassword) ? snap.data().adminPassword : '1234';
+            
+            if (inputPw === realPw) {
+                document.getElementById('newAdminPw').value = realPw;
+                
+                // 데이터베이스 구조 꼬임 방지 (안전한 파싱)
+                if (snap.exists() && snap.data().units) {
+                    adminUnits = snap.data().units.map(u => ({
+                        id: u.id || Date.now().toString(),
+                        name: u.name || '이름 없는 단원',
+                        type: u.type || 'pool',
+                        words: Array.isArray(u.words) ? u.words : []
+                    }));
+                } else {
+                    adminUnits = [];
+                }
+                
+                renderAdminUnits();
+                window.showScreen('admin-settings-screen');
+                window.showStatus(""); // 상태바 초기화
+            } else {
+                window.showAlert("비밀번호가 틀렸습니다.");
+                window.showStatus("");
+            }
+        } catch(e) {
+            console.error("verifyAdmin Error:", e);
+            window.showAlert("데이터베이스에 접근할 수 없습니다. (Firestore 권한 또는 인터넷 연결을 확인하세요.)\n상세: " + e.message);
+            window.showStatus("");
         }
     }
 
     window.changeAdminPw = async function() {
         const newPw = document.getElementById('newAdminPw').value;
         if(newPw.trim() === "") return;
-        await setDoc(doc(db, "bingo_settings", "main"), { adminPassword: newPw }, { merge: true });
-        window.showAlert("비밀번호가 변경되었습니다.");
+        try {
+            await setDoc(doc(db, "bingo_settings", "main"), { adminPassword: newPw }, { merge: true });
+            window.showAlert("비밀번호가 변경되었습니다.");
+        } catch(e) {
+            window.showAlert("변경 실패: " + e.message);
+        }
     }
 
     window.addNewUnit = function() {
@@ -534,21 +574,25 @@
         roomSettings = { gridSize: size, targetLines: lines, mode: '1v1', unitType: unit.type, maxPerWord: Math.ceil((size*size)/unit.words.length) };
         currentWords = unit.words;
 
-        await setDoc(doc(db, "bingo_rooms", roomCode), {
-            status: 'waiting',
-            mode: '1v1',
-            gridSize: size,
-            targetLines: lines,
-            unitType: unit.type,
-            words: unit.words,
-            players: { p1: { name: sName, ready: false, rpsChoice: "", lines: 0 } },
-            calledWords: [],
-            turn: "", winner: "", createdAt: Date.now()
-        });
+        try {
+            await setDoc(doc(db, "bingo_rooms", roomCode), {
+                status: 'waiting',
+                mode: '1v1',
+                gridSize: size,
+                targetLines: lines,
+                unitType: unit.type,
+                words: unit.words,
+                players: { p1: { name: sName, ready: false, rpsChoice: "", lines: 0 } },
+                calledWords: [],
+                turn: "", winner: "", createdAt: Date.now()
+            });
 
-        document.getElementById('display-room-code').innerText = roomCode;
-        window.showScreen('waiting-screen');
-        listenRoomChanges();
+            document.getElementById('display-room-code').innerText = roomCode;
+            window.showScreen('waiting-screen');
+            listenRoomChanges();
+        } catch(e) {
+            window.showAlert("방 생성 오류: " + e.message);
+        }
     }
 
     window.createClassRoom = async function(unitIndex) {
@@ -556,26 +600,32 @@
         const targetLines = parseInt(document.getElementById(`admin-target-${unitIndex}`).value);
         const roomCode = generateRoomCode();
         
+        if(unit.words.length === 0) return window.showAlert("단어 리스트가 비어있습니다.");
+
         myInfo = { name: "Teacher", room: roomCode, id: 'host', role: 'host' };
         roomSettings = { gridSize: 5, targetLines: targetLines, mode: 'class', unitType: unit.type, maxPerWord: Math.ceil(25/unit.words.length) };
         currentWords = unit.words;
 
-        await setDoc(doc(db, "bingo_rooms", roomCode), {
-            status: 'setup', // 선생님이 만들면 학생들은 바로 setup 가능
-            mode: 'class',
-            gridSize: 5,
-            targetLines: targetLines,
-            unitType: unit.type,
-            words: unit.words,
-            players: {},
-            calledWords: [],
-            winner: "", createdAt: Date.now()
-        });
+        try {
+            await setDoc(doc(db, "bingo_rooms", roomCode), {
+                status: 'setup', 
+                mode: 'class',
+                gridSize: 5,
+                targetLines: targetLines,
+                unitType: unit.type,
+                words: unit.words,
+                players: {},
+                calledWords: [],
+                winner: "", createdAt: Date.now()
+            });
 
-        document.getElementById('host-display-code').innerText = roomCode;
-        document.getElementById('host-target-lines-display').innerText = targetLines;
-        window.showScreen('host-game-screen');
-        listenClassRoomHost();
+            document.getElementById('host-display-code').innerText = roomCode;
+            document.getElementById('host-target-lines-display').innerText = targetLines;
+            window.showScreen('host-game-screen');
+            listenClassRoomHost();
+        } catch(e) {
+            window.showAlert("방 생성 오류: " + e.message);
+        }
     }
 
     window.joinRoom = async function(mode) {
@@ -624,8 +674,8 @@
             
             initSetupBoard();
             listenRoomChanges();
-            
-        } catch(e) { console.error(e); window.showAlert("방 입장에 실패했습니다."); }
+            window.showStatus(""); // 입장 완료시 상태 제거
+        } catch(e) { console.error(e); window.showAlert("방 입장에 실패했습니다. (코드 및 네트워크 확인)"); window.showStatus(""); }
     }
 
     // ==========================================
@@ -699,7 +749,7 @@
                 }
             };
 
-            // 드래그 앤 드롭 처리 (pool 모드일 때만)
+            // 드래그 앤 드롭 처리
             if (roomSettings.unitType === 'pool') {
                 cell.ondragover = (e) => { e.preventDefault(); cell.classList.add('drag-over'); };
                 cell.ondragleave = (e) => { cell.classList.remove('drag-over'); };
@@ -713,7 +763,7 @@
             boardDiv.appendChild(cell);
         }
         
-        // 단어 버튼 비활성화 처리
+        // 버튼 비활성화 (최대 횟수 초과 방지)
         if (roomSettings.unitType === 'pool') {
             const btns = document.querySelectorAll('.word-btn');
             btns.forEach(btn => {
@@ -740,10 +790,9 @@
         if(emptyIndex !== -1) placeWordAt(word, emptyIndex);
     }
 
-    // 특정 인덱스에 넣기 (드래그 드롭 통일 로직)
+    // 드래그 또는 터치 공통 입력 함수
     function placeWordAt(word, index) {
         const usage = countWordUsage(word);
-        // 이미 꽉 찼고, 현재 칸에 있는 단어가 넣으려는 단어와 다를 때만 제한
         if(usage >= roomSettings.maxPerWord && myBoard[index] !== word) {
             return window.showAlert(`'${word}' 단어는 최대 ${roomSettings.maxPerWord}번까지만 사용할 수 있습니다.`);
         }
@@ -758,12 +807,11 @@
         }
     }
 
-    // 직접 입력 모드 제출
+    // 직접 입력 모드 처리
     window.submitDirectInput = function() {
         const val = document.getElementById('direct-input-word').value.trim();
         if(!val) return;
         
-        // 정답(currentWords)에 존재하는지 검사 (대소문자 무시)
         const match = currentWords.find(w => w.toLowerCase() === val.toLowerCase());
         if(!match) {
             window.showAlert("❌ 목록에 없는 단어이거나 철자가 틀렸습니다.");
@@ -775,12 +823,11 @@
              return;
         }
 
-        myBoard[selectedCellIndex] = match; // 정답 형태 그대로 입력
+        myBoard[selectedCellIndex] = match;
         window.closeInputModal();
         renderSetupBoard();
     }
     window.closeInputModal = function() { document.getElementById('input-modal').style.display = 'none'; }
-
 
     window.setReady = async function() {
         if(myBoard.includes("")) return window.showAlert("빙고판을 모두 채워주세요!");
@@ -804,7 +851,7 @@
                 [`players.${myInfo.id}.ready`]: true,
                 [`players.${myInfo.id}.board`]: myBoard
             });
-        } catch(e) { console.error(e); }
+        } catch(e) { console.error(e); window.showAlert("오류 발생: " + e.message); }
     }
 
     // ==========================================
@@ -819,7 +866,6 @@
 
             if (room.status === 'setup') {
                 if(!document.getElementById('setup-screen').classList.contains('active')) {
-                    // 반 전체 게임 접속자면 바로 setup 화면으로
                     if(room.mode === 'class' && !room.players[myInfo.id].ready) {
                         initSetupBoard();
                     }
@@ -846,7 +892,7 @@
                 if(!document.getElementById('game-screen').classList.contains('active')) {
                     window.showScreen('game-screen');
                     document.getElementById('game-target-lines').innerText = roomSettings.targetLines;
-                    if(room.mode === 'class') document.getElementById('opp-score-box').style.display = 'none'; // 클래스 모드는 상대방 점수 숨김
+                    if(room.mode === 'class') document.getElementById('opp-score-box').style.display = 'none';
                 }
                 
                 const called = room.calledWords || [];
@@ -868,7 +914,6 @@
                     document.getElementById('turn-indicator').innerText = "🔊 선생님이 부르는 단어를 찾으세요!";
                 }
 
-                // 빙고 줄 계산
                 const myLines = calculateBingo(called, myBoard, roomSettings.gridSize);
                 document.getElementById('my-bingo-count').innerText = myLines;
 
@@ -886,7 +931,6 @@
                     if(room.mode === '1v1') {
                         updateDoc(roomRef, { status: 'finished', winner: myInfo.name });
                     } else {
-                        // 반 전체 게임: 개인 승리 알림 띄우고 계속 참여 (선생님이 종료 통제)
                         window.showAlert("🎉 목표 빙고 줄을 완성했습니다!");
                     }
                 }
@@ -945,7 +989,6 @@
         myBoard.forEach(word => {
             const cell = document.createElement('div');
             cell.className = 'bingo-cell';
-            // 대소문자 무시 매칭
             const isCalled = calledWords.some(cw => cw.toLowerCase() === word.toLowerCase());
             
             if(isCalled) cell.classList.add('marked');
@@ -953,17 +996,12 @@
             
             cell.onclick = () => {
                 if(isGameOver) return;
-                
                 if (room.mode === '1v1') {
                     if(isMyTurn && !isCalled) {
                         const newCalled = [...calledWords, word];
                         const nextTurn = myInfo.id === 'p1' ? 'p2' : 'p1';
                         updateDoc(doc(db, "bingo_rooms", myInfo.room), { calledWords: newCalled, turn: nextTurn });
                     }
-                } else if (room.mode === 'class') {
-                    // 클래스 모드: 학생이 아무거나 누를 수 없고 선생님이 부른 단어만 빙고판에 표시되게 할 수도 있지만, 
-                    // 실감나게 본인 판에서 불린 단어를 클릭해서 색칠하는 재미를 유지 (자동 체크)
-                    // 이미 위에서 isCalled 로 자동 체크되도록 했으므로 클릭 이벤트 무시.
                 }
             };
             boardDiv.appendChild(cell);
@@ -1041,7 +1079,6 @@
     function calculateBingo(calledWords, board, size) {
         if (!board || board.length < size*size) return 0;
         let lines = 0;
-        // board의 단어가 calledWords에 존재하는지 boolean 배열로 변환
         const marked = board.map(w => calledWords.some(cw => cw.toLowerCase() === w.toLowerCase()));
         
         // 가로 검사
