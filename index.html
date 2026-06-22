@@ -107,7 +107,7 @@
                 </select>
             </div>
             <div style="display: flex; gap: 10px;">
-                <input type="number" id="studentNum" placeholder="번호 (예: 1)" style="width: 80px;">
+                <input type="number" id="studentNum" placeholder="번호 (예: 1)" style="width: 100px;">
                 <input type="text" id="studentName" placeholder="이름 (예: 홍길동)" style="flex: 1;">
             </div>
         </div>
@@ -136,6 +136,7 @@
                         <option value="3" selected>3줄 완성</option>
                         <option value="4">4줄 완성</option>
                         <option value="5">5줄 완성</option>
+                        <option value="6">6줄 완성</option>
                     </select>
                 </div>
                 <button onclick="window.create1v1Room()" style="width: 100%; background-color: #3498db; font-size: 18px; padding: 15px;">방 만들기</button>
@@ -882,6 +883,9 @@
 
     // [반 전체 상태 처리 (학생)]
     function handleClassRoomState(room, roomRef) {
+        const myPlayer = room.players && room.players[myInfo.id];
+        if (!myPlayer || !myPlayer.ready) return; // 학생이 빙고판을 다 채우고 준비를 누를 때까지 셋업 화면 유지
+
         if (room.status === 'playing') {
             if(!document.getElementById('game-screen').classList.contains('active')) {
                 window.showScreen('game-screen');
@@ -1044,6 +1048,7 @@
     function showResult(winMsg) {
         if(roomUnsubscribe) roomUnsubscribe();
         window.showScreen('result-screen');
+        window.showStatus("✨ 게임이 종료되었습니다!"); // 턴 안내 문구를 종료 문구로 변경
         const resMsg = document.getElementById('result-message');
         
         if (winMsg === "선생님이 게임을 종료했습니다.") {
