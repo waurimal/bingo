@@ -97,8 +97,11 @@
         }
         .modal-content p { margin-bottom: 20px; font-size: 16px; line-height: 1.5; }
         
-        .word-btn { background-color: #f1c40f; color: #333; margin: 3px; padding: 8px 12px;}
+        .word-btn { background-color: #f1c40f; color: #333; margin: 3px; padding: 8px 12px; cursor: grab;}
+        .word-btn:active { cursor: grabbing; }
         .word-btn:hover { background-color: #f39c12; }
+
+        .bingo-cell.drag-over { background-color: #d1ecf1; border: 2px dashed var(--primary-color); }
         
         /* 빙고 완성 효과 */
         .bingo-success { color: #e74c3c; animation: pop 0.5s infinite alternate; }
@@ -187,7 +190,7 @@
     <!-- 3. 빙고판 준비 화면 -->
     <div id="setup-screen" class="screen">
         <h2 id="setup-unit-name">단원명</h2>
-        <p>단어를 여러 번 클릭하여 중복으로 빙고판 25칸을 모두 채워주세요.</p>
+        <p>단어를 클릭하거나 원하는 칸으로 드래그하여 빙고판 25칸을 골고루 채워주세요.</p>
         <div id="word-pool" style="display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-bottom: 15px; max-height: 150px; overflow-y: auto; background: white; padding: 10px; border-radius: 8px; border: 1px solid #ddd;"></div>
         <div id="setup-board" class="bingo-board"></div>
         <br>
@@ -476,7 +479,7 @@
 
     function initSetupBoard() {
         window.showScreen('setup-screen');
-        window.showStatus("단어를 클릭하여 빙고판을 완성하세요!");
+        window.showStatus("단어를 클릭하거나 드래그하여 빙고판을 완성하세요!");
         myBoard = new Array(25).fill("");
         
         const pool = document.getElementById('word-pool');
@@ -485,7 +488,15 @@
             const btn = document.createElement('button');
             btn.className = 'word-btn';
             btn.innerText = word;
-            btn.onclick = () => window.addToBoard(word); // 중복 허용이므로 버튼을 계속 보여줌
+            btn.draggable = true; // 드래그 앤 드롭 활성화
+            
+            // 드래그 시작 시 단어 데이터 저장
+            btn.ondragstart = (e) => {
+                e.dataTransfer.setData('text/plain', word);
+                e.dataTransfer.effectAllowed = 'copy';
+            };
+            
+            btn.onclick = () => window.addToBoard(word); // 클릭 시 자동 추가 (모바일 호환)
             pool.appendChild(btn);
         });
 
@@ -505,10 +516,32 @@
                 cell.classList.add('marked');
                 filledCount++;
             }
+            
+            // 드래그 앤 드롭 이벤트 처리 (해당 칸에 마우스가 올라왔을 때)
+            cell.ondragover = (e) => {
+                e.preventDefault(); // 드롭 허용
+                cell.classList.add('drag-over');
+            };
+            
+            cell.ondragleave = () => {
+                cell.classList.remove('drag-over');
+            };
+            
+            // 단어를 특정 칸에 떨어뜨렸을 때
+            cell.ondrop = (e) => {
+                e.preventDefault();
+                cell.classList.remove('drag-over');
+                const word = e.dataTransfer.getData('text/plain');
+                if (word) {
+                    window.processAddWord(word, i);
+                }
+            };
+
             cell.onclick = () => window.removeFromBoard(i);
             boardDiv.appendChild(cell);
         }
         
+        const readyBtn = document.getElementById('ready-btn');
         const readyBtn = document.getElementById('ready-btn');
         if(filledCount === 25) {
             readyBtn.disabled = false;
@@ -521,10 +554,27 @@
 
     window.addToBoard = function(word) {
         const emptyIndex = myBoard.findIndex(w => w === "");
-        if(emptyIndex !== -1) { // 중복 단어 입력 제한 해제 (원하는 만큼 추가 가능)
-            myBoard[emptyIndex] = word;
-            renderSetupBoard();
+        if(emptyIndex !== -1) { 
+            window.processAddWord(word, emptyIndex);
+        } else {
+            window.showAlert("빙고판이 이미 꽉 찼습니다!");
         }
+    }
+
+    // 단어 추가 및 최대 횟수 검사 통합 로직
+    window.processAddWord = function(word, index) {
+        if (myBoard[index] === word) return; // 동일한 단어 덮어쓰기 무시
+
+        // 최대 허용 횟수 계산 (예: 25칸 / 5단어 = 최대 5번)
+        const maxCount = Math.ceil(25 / currentWords.length);
+        const currentCount = myBoard.filter(w => w === word).length;
+
+        if (currentCount >= maxCount) {
+            return window.showAlert(`'${word}' 단어는 최대 ${maxCount}번까지만 넣을 수 있습니다.\n모든 단어를 골고루 사용해주세요.`);
+        }
+
+        myBoard[index] = word; // 지정된 인덱스에 단어 넣기 (또는 덮어쓰기)
+        renderSetupBoard();
     }
 
     window.removeFromBoard = function(index) {
