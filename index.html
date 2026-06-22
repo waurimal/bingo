@@ -296,13 +296,18 @@
             입장 코드 <span id="host-room-code" style="font-size: 36px; margin-left: 15px; letter-spacing: 5px;"></span>
         </div>
         
-        <div style="display: flex; gap: 20px; text-align: left; flex-wrap: wrap;">
+        <div id="host-start-container" style="margin-bottom: 20px; text-align: center;">
+            <button onclick="window.startClassGame()" style="background-color: #e74c3c; padding: 15px 30px; font-size: 20px; border-radius: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">🚀 게임 시작하기</button>
+            <p style="color: #666; margin-top: 10px; font-size: 15px;">학생들이 모두 '준비 완료(✅)'가 되면 시작 버튼을 눌러주세요.</p>
+        </div>
+
+        <div id="host-game-container" style="display: none; gap: 20px; text-align: left; flex-wrap: wrap;">
             <div style="flex: 2; min-width: 300px; background: white; padding: 20px; border-radius: 12px; border: 1px solid #ddd;">
                 <h3 style="color: var(--primary-color); border-bottom: 2px solid var(--primary-color); padding-bottom: 10px;">단어 목록 <span style="font-size: 14px; font-weight: normal; color: #666;">(클릭하여 부르기)</span></h3>
                 <div id="host-word-pool" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
             </div>
             <div style="flex: 1; min-width: 250px; background: white; padding: 20px; border-radius: 12px; border: 1px solid #ddd;">
-                <h3 style="color: #2980b9; border-bottom: 2px solid #2980b9; padding-bottom: 10px;">학생 현황 (3줄 빙고 👑)</h3>
+                <h3 style="color: #2980b9; border-bottom: 2px solid #2980b9; padding-bottom: 10px;">학생 현황 (<span id="host-target-lines-display">3</span>줄 빙고 👑)</h3>
                 <div id="host-ranking" style="max-height: 400px; overflow-y: auto;">
                     <p style="color: #999; text-align: center; margin-top: 20px;">아직 학생이 없습니다.</p>
                 </div>
@@ -614,14 +619,22 @@
         myInfo.room = code;
 
         await setDoc(doc(db, "bingo_rooms", code), {
-            type: "class", unitId: unitId, status: "playing", calledWords: [], players: {},
+            type: "class", unitId: unitId, status: "setup", calledWords: [], players: {},
             gridSize: currentGridSize, targetLines: currentTargetLines
         });
 
         document.getElementById('host-room-code').innerText = code;
+        document.getElementById('host-target-lines-display').innerText = currentTargetLines;
+        document.getElementById('host-start-container').style.display = 'block';
+        document.getElementById('host-game-container').style.display = 'none';
+        
         window.showScreen('host-screen');
         renderHostWords();
         listenClassRoomHost();
+    }
+
+    window.startClassGame = async function() {
+        await updateDoc(doc(db, "bingo_rooms", myInfo.room), { status: "playing" });
     }
 
     window.joinClassRoom = async function() {
@@ -897,6 +910,9 @@
             if (called.length > 0) {
                 document.getElementById('game-title').innerText = "🔥 빙고 게임 진행 중!";
                 window.showStatus("선생님이 부른 단어를 빙고판에서 클릭하세요!");
+            } else {
+                document.getElementById('game-title').innerText = "🔥 빙고 게임 진행 중!";
+                window.showStatus("게임이 시작되었습니다! 선생님이 부를 단어에 집중하세요.");
             }
             
             const myLines = calculateBingo(called, myBoard);
@@ -981,6 +997,12 @@
         roomUnsubscribe = onSnapshot(doc(db, "bingo_rooms", myInfo.room), (docSnap) => {
             if (!docSnap.exists()) return;
             const room = docSnap.data();
+            
+            if (room.status === 'playing') {
+                document.getElementById('host-start-container').style.display = 'none';
+                document.getElementById('host-game-container').style.display = 'flex';
+            }
+
             const players = room.players || {};
             const rankingDiv = document.getElementById('host-ranking');
             rankingDiv.innerHTML = '';
