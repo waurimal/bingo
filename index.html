@@ -121,8 +121,23 @@
         <div id="tab-1v1" class="tab-content active">
             <div style="background: #e8f4f8; padding: 20px; border-radius: 8px; margin-bottom: 15px; text-align: left;">
                 <h3 style="color: #2980b9;">[1] 방 만들기 (내가 호스트)</h3>
-                <p style="font-size: 13px; color: #555; margin-top:0;">진행할 단원을 선택하고 방을 만들면 4자리 코드가 생성됩니다.</p>
+                <p style="font-size: 13px; color: #555; margin-top:0;">진행할 단원과 빙고판 크기를 선택하고 방을 만듭니다.</p>
                 <select id="studentUnitSelect" style="width: 100%; margin-bottom: 10px;"></select>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <select id="boardSize1v1" style="flex: 1;">
+                        <option value="3">3x3 (9칸)</option>
+                        <option value="4">4x4 (16칸)</option>
+                        <option value="5" selected>5x5 (25칸)</option>
+                        <option value="6">6x6 (36칸)</option>
+                    </select>
+                    <select id="targetLines1v1" style="flex: 1;">
+                        <option value="1">1줄 완성</option>
+                        <option value="2">2줄 완성</option>
+                        <option value="3" selected>3줄 완성</option>
+                        <option value="4">4줄 완성</option>
+                        <option value="5">5줄 완성</option>
+                    </select>
+                </div>
                 <button onclick="window.create1v1Room()" style="width: 100%; background-color: #3498db; font-size: 18px; padding: 15px;">방 만들기</button>
             </div>
             <div style="background: #fdfbf7; padding: 20px; border-radius: 8px; border: 1px solid #f39c12; text-align: left;">
@@ -202,6 +217,22 @@
         <div style="margin-top: 20px; background: #e8eaed; padding: 20px; border-radius: 12px;">
             <h3 style="color: #2c3e50; margin-bottom: 10px;">🏫 반 전체 게임 생성 (교사 주도)</h3>
             <p style="font-size: 14px; color: #555; text-align: left; margin-bottom: 15px;">위에서 선택한 <strong><span id="admin-selected-unit-display" style="color:var(--primary-color);"></span></strong> 단원으로 반 전체가 참여할 수 있는 빙고 방을 만듭니다.</p>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <select id="boardSizeClass" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
+                    <option value="3">3x3 (9칸)</option>
+                    <option value="4">4x4 (16칸)</option>
+                    <option value="5" selected>5x5 (25칸)</option>
+                    <option value="6">6x6 (36칸)</option>
+                </select>
+                <select id="targetLinesClass" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
+                    <option value="1">1줄 완성</option>
+                    <option value="2">2줄 완성</option>
+                    <option value="3" selected>3줄 완성</option>
+                    <option value="4">4줄 완성</option>
+                    <option value="5">5줄 완성</option>
+                    <option value="6">6줄 완성</option>
+                </select>
+            </div>
             <button onclick="window.createClassRoom()" style="width: 100%; background-color: #8e44ad; padding: 18px; font-size: 20px; border-radius: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">반 전체 게임 방 만들기 ✨</button>
         </div>
     </div>
@@ -340,6 +371,10 @@
     let roomUnsubscribe = null;
     let isGameOver = false;
     let targetCellIndex = -1; // 입력 모달용 인덱스
+    
+    let currentGridSize = 5; // 빙고판 크기 (기본 5x5)
+    let totalCells = 25;     // 총 칸 수
+    let currentTargetLines = 3; // 목표 줄 수
 
     // 앱 시작 시 익명 로그인 후 단원 정보 로드
     signInAnonymously(auth).then(() => {
@@ -503,6 +538,10 @@
         const unit = unitsData.find(u => u.id === unitId);
         if(!unit || unit.wordList.length === 0) return window.showAlert("선택한 단원에 단어가 없습니다.");
         
+        currentGridSize = parseInt(document.getElementById('boardSize1v1').value);
+        currentTargetLines = parseInt(document.getElementById('targetLines1v1').value);
+        totalCells = currentGridSize * currentGridSize;
+
         myInfo.name = name; myInfo.isHost = true; myInfo.id = 'p1';
         currentWords = unit.wordList; currentFillMode = unit.fillMode; 
         document.getElementById('setup-unit-name').innerText = unit.unitName;
@@ -513,6 +552,7 @@
         window.showStatus("방을 생성하는 중...");
         await setDoc(doc(db, "bingo_rooms", code), {
             type: "1v1", unitId: unitId, status: "waiting", calledWords: [], turn: "", winner: "",
+            gridSize: currentGridSize, targetLines: currentTargetLines,
             players: { p1: { name: myInfo.name, ready: false, rpsChoice: "", lines: 0 } }
         });
 
@@ -538,6 +578,11 @@
         
         const unit = unitsData.find(u => u.id === snap.data().unitId);
         currentWords = unit.wordList; currentFillMode = unit.fillMode;
+        
+        currentGridSize = snap.data().gridSize || 5;
+        currentTargetLines = snap.data().targetLines || 3;
+        totalCells = currentGridSize * currentGridSize;
+        
         document.getElementById('setup-unit-name').innerText = unit.unitName;
 
         await updateDoc(roomRef, {
@@ -557,6 +602,10 @@
         const unit = unitsData.find(u => u.id === unitId);
         if(!unit || unit.wordList.length === 0) return window.showAlert("선택한 단원에 단어가 없습니다.");
         
+        currentGridSize = parseInt(document.getElementById('boardSizeClass').value);
+        currentTargetLines = parseInt(document.getElementById('targetLinesClass').value);
+        totalCells = currentGridSize * currentGridSize;
+
         myInfo.isHost = true; myInfo.mode = 'class'; myInfo.id = 'teacher';
         currentWords = unit.wordList;
         
@@ -564,7 +613,8 @@
         myInfo.room = code;
 
         await setDoc(doc(db, "bingo_rooms", code), {
-            type: "class", unitId: unitId, status: "playing", calledWords: [], players: {}
+            type: "class", unitId: unitId, status: "playing", calledWords: [], players: {},
+            gridSize: currentGridSize, targetLines: currentTargetLines
         });
 
         document.getElementById('host-room-code').innerText = code;
@@ -588,6 +638,11 @@
         
         const unit = unitsData.find(u => u.id === snap.data().unitId);
         currentWords = unit.wordList; currentFillMode = unit.fillMode;
+        
+        currentGridSize = snap.data().gridSize || 5;
+        currentTargetLines = snap.data().targetLines || 3;
+        totalCells = currentGridSize * currentGridSize;
+        
         document.getElementById('setup-unit-name').innerText = unit.unitName;
 
         // 학생 목록에 자신 추가
@@ -602,18 +657,25 @@
     // ==========================================
     function initSetupBoard() {
         window.showScreen('setup-screen');
-        myBoard = new Array(25).fill("");
-        // 25칸에 맞춰 단어가 골고루 들어가도록 최대 한도 계산
-        maxWordUsage = Math.ceil(25 / currentWords.length); 
+        myBoard = new Array(totalCells).fill("");
+        // 칸수에 맞춰 단어가 골고루 들어가도록 최대 한도 계산
+        maxWordUsage = Math.ceil(totalCells / currentWords.length); 
         
         const pool = document.getElementById('word-pool');
         const helpText = document.getElementById('setup-help-text');
         pool.innerHTML = '';
         
+        let reqMsg = "";
+        if (totalCells >= currentWords.length) {
+            reqMsg = "👉 <strong>모든 단어</strong>를 최소 한 번 이상 빙고판에 꼭 넣어야 합니다!<br>";
+        } else {
+            reqMsg = "👉 주어진 단어 중 원하는 단어를 자유롭게 골라 채워주세요.<br>";
+        }
+
         if (currentFillMode === 'pool') {
             window.showStatus(`단어당 최대 ${maxWordUsage}번씩 넣을 수 있습니다. 드래그하여 원하는 위치에 놓으세요!`);
             pool.style.display = 'flex';
-            helpText.innerHTML = `👉 <strong>모든 단어</strong>를 최소 한 번 이상 빙고판에 꼭 넣어야 합니다!<br>👉 빈칸은 버튼을 터치하거나 칸으로 <strong>드래그</strong>하여 중복으로 채워주세요. (최대 ${maxWordUsage}번)`;
+            helpText.innerHTML = `${reqMsg}👉 빈칸은 버튼을 터치하거나 칸으로 <strong>드래그</strong>하여 중복으로 채워주세요. (최대 ${maxWordUsage}번)`;
             
             currentWords.forEach(word => {
                 const btn = document.createElement('button');
@@ -626,7 +688,7 @@
         } else {
             window.showStatus(`빈칸을 누르고 단어를 직접 입력하세요! (최대 ${maxWordUsage}번)`);
             pool.style.display = 'none';
-            helpText.innerHTML = `👉 빈칸을 누르고 주제에 맞는 <strong>단어(정답)를 직접 타이핑</strong>하세요.<br>👉 영어일 경우 스펠링에 유의하세요! (최대 ${maxWordUsage}번 중복 가능)`;
+            helpText.innerHTML = `${reqMsg}👉 빈칸을 누르고 주제에 맞는 <strong>단어(정답)를 직접 타이핑</strong>하세요.<br>👉 영어일 경우 스펠링에 유의하세요! (최대 ${maxWordUsage}번 중복 가능)`;
         }
 
         renderSetupBoard();
@@ -634,10 +696,11 @@
 
     function renderSetupBoard() {
         const boardDiv = document.getElementById('setup-board');
+        boardDiv.style.gridTemplateColumns = `repeat(${currentGridSize}, 1fr)`;
         boardDiv.innerHTML = '';
         let filledCount = 0;
         
-        for(let i = 0; i < 25; i++) {
+        for(let i = 0; i < totalCells; i++) {
             const cell = document.createElement('div');
             cell.className = 'bingo-cell';
             if(myBoard[i]) {
@@ -667,10 +730,10 @@
         }
         
         const readyBtn = document.getElementById('ready-btn');
-        if(filledCount === 25) {
+        if(filledCount === totalCells) {
             readyBtn.disabled = false; readyBtn.innerText = "✨ 준비 완료! ✨"; readyBtn.style.backgroundColor = "#d35400";
         } else {
-            readyBtn.disabled = true; readyBtn.innerText = `단어 채우기 (${filledCount}/25)`; readyBtn.style.backgroundColor = "#bdc3c7";
+            readyBtn.disabled = true; readyBtn.innerText = `단어 채우기 (${filledCount}/${totalCells})`; readyBtn.style.backgroundColor = "#bdc3c7";
         }
     }
 
@@ -714,12 +777,14 @@
     }
 
     window.setReady = async function() {
-        if(myBoard.includes("")) return window.showAlert("빙고판 25칸을 모두 채워주세요!");
+        if(myBoard.includes("")) return window.showAlert(`빙고판 ${totalCells}칸을 모두 채워주세요!`);
         
-        // 필수 포함 검사 (풀/타입 모두 적용 - 요구사항 반영)
-        const missingWords = currentWords.filter(word => !myBoard.includes(word));
-        if(missingWords.length > 0) {
-            return window.showAlert(`⚠️ 제공된 모든 단어를 최소 한 번씩은 꼭 사용해야 합니다!\n\n[빠진 단어]\n${missingWords.join(', ')}`);
+        // 필수 포함 검사 (칸 수가 단어 수보다 같거나 많을 때만 모든 단어 사용 강제)
+        if (totalCells >= currentWords.length) {
+            const missingWords = currentWords.filter(word => !myBoard.includes(word));
+            if(missingWords.length > 0) {
+                return window.showAlert(`⚠️ 제공된 모든 단어를 최소 한 번씩은 꼭 사용해야 합니다!\n\n[빠진 단어]\n${missingWords.join(', ')}`);
+            }
         }
         
         document.getElementById('ready-btn').disabled = true;
@@ -733,7 +798,7 @@
             window.showStatus("선생님이 게임을 시작할 때까지 대기하세요...");
             window.showScreen('game-screen');
             document.getElementById('opp-bingo-container').style.display = 'none'; // 상대 빙고 숨김
-            document.getElementById('game-target-text').innerHTML = "선생님이 부르는 단어를 집중해서 클릭하세요!";
+            document.getElementById('game-target-text').innerHTML = `선생님이 부르는 단어를 집중해서 클릭하세요! <br>(목표: ${currentTargetLines}줄)`;
             document.getElementById('game-title').innerText = "⏳ 게임 대기 중...";
             renderGameBoard([]); // 빈 빙고판 보여줌
             await updateDoc(doc(db, "bingo_rooms", myInfo.room), {
@@ -788,7 +853,10 @@
                 }
             }
         } else if (room.status === 'playing') {
-            if(!document.getElementById('game-screen').classList.contains('active')) window.showScreen('game-screen');
+            if(!document.getElementById('game-screen').classList.contains('active')) {
+                window.showScreen('game-screen');
+                document.getElementById('game-target-text').innerHTML = `목표: <strong style="color:#e74c3c; font-size: 18px;">${currentTargetLines}줄</strong> 먼저 완성하기!`;
+            }
             const called = room.calledWords || [];
             isMyTurn = (room.turn === myInfo.id);
             
@@ -803,7 +871,7 @@
             document.getElementById('opp-bingo-count').innerText = oppLines;
 
             if(room.players[myInfo.id].lines !== myLines) updateDoc(roomRef, { [`players.${myInfo.id}.lines`]: myLines });
-            if(myLines >= 3 && !isGameOver) {
+            if(myLines >= currentTargetLines && !isGameOver) {
                 isGameOver = true; updateDoc(roomRef, { status: 'finished', winner: myInfo.name });
             }
             renderGameBoard(called);
@@ -815,6 +883,12 @@
     // [반 전체 상태 처리 (학생)]
     function handleClassRoomState(room, roomRef) {
         if (room.status === 'playing') {
+            if(!document.getElementById('game-screen').classList.contains('active')) {
+                window.showScreen('game-screen');
+                document.getElementById('game-target-text').innerHTML = `목표: <strong style="color:#e74c3c; font-size: 18px;">${currentTargetLines}줄</strong> 먼저 완성하기!`;
+                document.getElementById('opp-bingo-container').style.display = 'none'; // 반 전체는 상대방 현황 숨김
+            }
+
             const called = room.calledWords || [];
             if (called.length > 0) {
                 document.getElementById('game-title').innerText = "🔥 빙고 게임 진행 중!";
@@ -828,9 +902,9 @@
                 updateDoc(roomRef, { [`players.${myInfo.id}.lines`]: myLines });
             }
 
-            if(myLines >= 3 && !isGameOver) {
+            if(myLines >= currentTargetLines && !isGameOver) {
                 isGameOver = true;
-                window.showAlert("🎉 3줄 빙고 완성!! 선생님 화면을 확인하세요.");
+                window.showAlert(`🎉 ${currentTargetLines}줄 빙고 완성!! 선생님 화면을 확인하세요.`);
                 // 반 전체는 1명이 이겼다고 끝나지 않고 교사가 종료함
             }
             renderGameBoard(called); // 교사 호출 기반 렌더링
@@ -847,6 +921,7 @@
 
     function renderGameBoard(calledWords) {
         const boardDiv = document.getElementById('game-board');
+        boardDiv.style.gridTemplateColumns = `repeat(${currentGridSize}, 1fr)`;
         boardDiv.innerHTML = '';
         
         myBoard.forEach(word => {
@@ -916,7 +991,7 @@
             sortedPlayers.forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'ranking-item';
-                if(p.lines >= 3) item.classList.add('done');
+                if(p.lines >= currentTargetLines) item.classList.add('done');
                 
                 const readyStr = p.ready ? '✅' : '⏳';
                 item.innerHTML = `<span>${readyStr} ${p.name}</span> <span>${p.lines} 줄</span>`;
@@ -926,14 +1001,42 @@
     }
 
     function calculateBingo(calledWords, board) {
-        if (!board || board.length < 25) return 0;
+        if (!board || board.length < totalCells) return 0;
         let lines = 0;
         const marked = board.map(w => calledWords.includes(w));
+        const N = currentGridSize;
         
-        for(let i=0; i<5; i++) { if(marked[i*5] && marked[i*5+1] && marked[i*5+2] && marked[i*5+3] && marked[i*5+4]) lines++; }
-        for(let i=0; i<5; i++) { if(marked[i] && marked[i+5] && marked[i+10] && marked[i+15] && marked[i+20]) lines++; }
-        if(marked[0] && marked[6] && marked[12] && marked[18] && marked[24]) lines++;
-        if(marked[4] && marked[8] && marked[12] && marked[16] && marked[20]) lines++;
+        // 가로 줄 검사
+        for (let r = 0; r < N; r++) {
+            let isLine = true;
+            for (let c = 0; c < N; c++) {
+                if (!marked[r * N + c]) { isLine = false; break; }
+            }
+            if (isLine) lines++;
+        }
+        
+        // 세로 줄 검사
+        for (let c = 0; c < N; c++) {
+            let isLine = true;
+            for (let r = 0; r < N; r++) {
+                if (!marked[r * N + c]) { isLine = false; break; }
+            }
+            if (isLine) lines++;
+        }
+        
+        // 대각선 줄 검사 (좌상 -> 우하)
+        let diag1 = true;
+        for (let i = 0; i < N; i++) {
+            if (!marked[i * N + i]) { diag1 = false; break; }
+        }
+        if (diag1) lines++;
+        
+        // 대각선 줄 검사 (우상 -> 좌하)
+        let diag2 = true;
+        for (let i = 0; i < N; i++) {
+            if (!marked[i * N + (N - 1 - i)]) { diag2 = false; break; }
+        }
+        if (diag2) lines++;
 
         return lines;
     }
@@ -942,12 +1045,16 @@
         if(roomUnsubscribe) roomUnsubscribe();
         window.showScreen('result-screen');
         const resMsg = document.getElementById('result-message');
-        if (winMsg === myInfo.name) {
+        
+        if (winMsg === "선생님이 게임을 종료했습니다.") {
+            resMsg.innerHTML = winMsg;
+            resMsg.style.color = "#34495e";
+        } else if (winMsg === myInfo.name) {
             resMsg.innerHTML = "🎉 빙고 완성! 승리하셨습니다! 🎉";
             resMsg.className = "bingo-success";
         } else {
-            resMsg.innerHTML = winMsg;
-            resMsg.style.color = "#34495e";
+            resMsg.innerHTML = `💀 아쉽게 패배하셨습니다.<br><span style="font-size: 24px; color: #555; display:block; margin-top:15px;">승리: ${winMsg} 님</span>`;
+            resMsg.style.color = "#e74c3c";
         }
     }
 </script>
