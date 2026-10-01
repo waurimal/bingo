@@ -465,7 +465,7 @@
                         <div class="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2.5">
                             <span class="text-xs font-black text-amber-800">🚪 [2] 친구 방 코드로 참여하기</span>
                             <div class="flex gap-2">
-                                <input type="text" id="join1v1CodeInput" placeholder="4자리 코드" maxlength="4" class="flex-1 text-center font-black text-lg tracking-widest p-2.5 bg-white border border-amber-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500">
+                                <input type="text" id="join1v1CodeInput" placeholder="4자리 코드" maxlength="4" class="flex-1 text-center font-black text-lg tracking-widest p-2.5 bg-white border border-amber-300 rounded-xl outline-none focus:ring-2 focus:ring-amber-500" onkeydown="if(event.key==='Enter') join1v1Room()">
                                 <button type="button" onclick="join1v1Room()" class="px-5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-xs transition">
                                     입장하기
                                 </button>
@@ -482,7 +482,7 @@
                                 우리 반 친구들 모두 함께 즐기는 라이브 빙고 수업입니다.<br>
                                 칠판 또는 화면에 표시된 4자리 코드를 입력하세요.
                             </p>
-                            <input type="text" id="classCodeInput" placeholder="수업 코드 4자리" maxlength="4" class="w-full text-center font-black text-2xl tracking-widest p-3 bg-white border border-purple-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500">
+                            <input type="text" id="classCodeInput" placeholder="수업 코드 4자리" maxlength="4" class="w-full text-center font-black text-2xl tracking-widest p-3 bg-white border border-purple-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" onkeydown="if(event.key==='Enter') joinClassRoom()">
                             <button type="button" onclick="joinClassRoom()" class="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-black text-sm rounded-xl shadow-md transition">
                                 수업 빙고 참여하기 ✨
                             </button>
@@ -653,9 +653,14 @@
                     <!-- 셀 동적 생성 -->
                 </div>
 
-                <button type="button" id="ready-btn" onclick="setReady()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-md transition">
-                    준비 완료! 🚀
-                </button>
+                <div class="flex gap-2">
+                    <button type="button" onclick="confirmExitGame()" class="py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition">
+                        나가기
+                    </button>
+                    <button type="button" id="ready-btn" onclick="setReady()" class="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-md transition">
+                        준비 완료! 🚀
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -1022,7 +1027,7 @@
         const auth = getAuth(app);
 
         // ── 전역 상태 변수 ──
-        let myInfo = { name: "학생", room: "", id: "", mode: "1v1", isHost: false };
+        let myInfo = { name: "학생", room: "", id: "", mode: "1v1", isHost: false, lastReportedBingo: -1, lastReportedCompleted: false };
         let unitsData = []; // DB에서 로드되는 15개 전체 단원 데이터
         let currentWords = [];
         let currentFillMode = 'pool';
@@ -1032,6 +1037,8 @@
         let roomUnsubscribe = null;
         let isGameOver = false;
         let targetCellIndex = -1;
+        let hasSetupBoard = false;    // 빙고판 배치 세팅 화면 최초 1회 진입 여부
+        let isSetupCompleted = false; // 빙고판 준비 완료 버튼 클릭 여부
 
         let currentGridSize = 5; // 기본 5x5
         let totalCells = 25;
@@ -1078,12 +1085,22 @@
 
         // GNB 프로필 연동
         function getStudentInfo() {
-            let info = { grade: '', class: '', number: '', name: '학생' };
+            let info = { grade: '', class: '', number: '', name: '학생', school: '이의초등학교' };
             try {
-                const saved = localStorage.getItem('waurimal_student_profile');
-                if (saved) {
-                    const p = JSON.parse(saved);
-                    info = { ...info, ...p };
+                let p = null;
+                if (window.WaurimalStudent && typeof window.WaurimalStudent.get === 'function') {
+                    p = window.WaurimalStudent.get();
+                }
+                if (!p) {
+                    const saved = localStorage.getItem('waurimal_student_profile');
+                    if (saved) p = JSON.parse(saved);
+                }
+                if (p) {
+                    info.grade = String(p.grade || '');
+                    info.class = String(p.class || p.classNum || '');
+                    info.number = String(p.number || p.studentNum || '');
+                    info.name = (p.name || '학생').trim();
+                    info.school = p.school || '이의초등학교';
                 }
             } catch(e) {}
             return info;
@@ -1128,13 +1145,26 @@
             document.getElementById('custom-alert').classList.add('hidden');
         };
 
-        window.backToHome = () => {
+        window.backToHome = async () => {
+            const oldRoom = myInfo.room;
+            const wasHost = myInfo.isHost;
             if (roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe = null; }
             myInfo.room = "";
             myInfo.isHost = false;
+            myInfo.lastReportedBingo = -1;
+            myInfo.lastReportedCompleted = false;
             isGameOver = false;
+            hasSetupBoard = false;
+            isSetupCompleted = false;
+            myBoard = [];
             window.showScreen('screen-home');
             filterHofList();
+
+            if (wasHost && oldRoom) {
+                try {
+                    await deleteDoc(doc(db, "bingo_rooms", oldRoom));
+                } catch(e) {}
+            }
         };
 
         window.switchHomeTab = (tab) => {
@@ -1381,8 +1411,14 @@
                 room: code,
                 id: 'player1',
                 mode: '1v1',
-                isHost: true
+                isHost: true,
+                lastReportedBingo: -1,
+                lastReportedCompleted: false
             };
+            hasSetupBoard = false;
+            isSetupCompleted = false;
+            isGameOver = false;
+            myBoard = [];
 
             const size = parseInt(document.getElementById('boardSize1v1').value, 10);
             const lines = parseInt(document.getElementById('targetLines1v1').value, 10);
@@ -1440,8 +1476,14 @@
                 room: code,
                 id: 'player2',
                 mode: '1v1',
-                isHost: false
+                isHost: false,
+                lastReportedBingo: -1,
+                lastReportedCompleted: false
             };
+            hasSetupBoard = false;
+            isSetupCompleted = false;
+            isGameOver = false;
+            myBoard = [];
 
             await updateDoc(roomRef, {
                 player2: { name: myInfo.name, ready: false, rps: null },
@@ -1459,7 +1501,19 @@
             }
 
             const code = generateRoomCode();
-            myInfo = { name: "선생님", room: code, id: 'host', mode: 'class', isHost: true };
+            myInfo = {
+                name: "선생님",
+                room: code,
+                id: 'host',
+                mode: 'class',
+                isHost: true,
+                lastReportedBingo: -1,
+                lastReportedCompleted: false
+            };
+            hasSetupBoard = false;
+            isSetupCompleted = false;
+            isGameOver = false;
+            myBoard = [];
 
             const size = parseInt(document.getElementById('boardSizeClass').value, 10);
             const lines = parseInt(document.getElementById('targetLinesClass').value, 10);
@@ -1508,14 +1562,21 @@
                 room: code,
                 id: 'student_' + Math.random().toString(36).substring(2, 8),
                 mode: 'class',
-                isHost: false
+                isHost: false,
+                lastReportedBingo: -1,
+                lastReportedCompleted: false
             };
+            hasSetupBoard = false;
+            isSetupCompleted = false;
+            isGameOver = false;
+            myBoard = [];
 
             await updateDoc(roomRef, {
                 [`players.${myInfo.id}`]: {
                     name: myInfo.name,
                     bingoCount: 0,
                     completed: false,
+                    ready: false,
                     joinedAt: Date.now()
                 }
             });
@@ -1531,12 +1592,20 @@
             const poolDiv = document.getElementById('word-pool');
             poolDiv.innerHTML = '';
 
+            const readyBtn = document.getElementById('ready-btn');
+            if (readyBtn) {
+                readyBtn.disabled = false;
+                readyBtn.innerText = "준비 완료! 🚀";
+            }
+
             const isTypeMode = (currentFillMode === 'type');
             const helpEl = document.getElementById('setup-help-text');
-            if (isTypeMode) {
-                helpEl.innerText = "칸을 클릭하여 영단어를 직접 입력하세요.";
-            } else {
-                helpEl.innerText = "단어를 클릭하거나 자동 랜덤 배치 버튼을 누르세요.";
+            if (helpEl) {
+                if (isTypeMode) {
+                    helpEl.innerText = "칸을 클릭하여 영단어를 직접 입력하세요.";
+                } else {
+                    helpEl.innerText = "단어를 클릭하거나 자동 랜덤 배치 버튼을 누르세요.";
+                }
             }
 
             // 단어 보관함 채우기
@@ -1632,8 +1701,11 @@
                 return showAlert("빙고판의 모든 칸을 채워주세요!");
             }
             const btn = document.getElementById('ready-btn');
-            btn.disabled = true;
-            btn.innerText = "준비 완료됨! (상대 대기중)";
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "준비 완료됨! (대기중)";
+            }
+            isSetupCompleted = true;
 
             const roomRef = doc(db, "bingo_rooms", myInfo.room);
 
@@ -1644,9 +1716,20 @@
             } else {
                 window.showScreen('screen-game');
                 document.getElementById('game-title').innerText = "반 전체 라이브 빙고";
-                document.getElementById('status-message').innerText = "선생님이 단어를 부를 때까지 대기하세요!";
-                document.getElementById('opp-bingo-container').style.display = 'none';
+                document.getElementById('status-message').innerText = "선생님이 단어를 부를 때까지 대기하세요! 👂";
+                const oppBingoCont = document.getElementById('opp-bingo-container');
+                if (oppBingoCont) oppBingoCont.style.display = 'none';
                 renderGameBoard([]);
+
+                if (myInfo.id && myInfo.id.startsWith('student_')) {
+                    try {
+                        await updateDoc(roomRef, {
+                            [`players.${myInfo.id}.ready`]: true
+                        });
+                    } catch(e) {
+                        console.error("Ready update error", e);
+                    }
+                }
             }
         };
 
@@ -1676,14 +1759,18 @@
             currentGridSize = room.gridSize || 5;
             totalCells = currentGridSize * currentGridSize;
             currentTargetLines = room.targetLines || 3;
-            document.getElementById('game-target-text').innerText = `${currentTargetLines}줄`;
+            const targetEl = document.getElementById('game-target-text');
+            if (targetEl) targetEl.innerText = `${currentTargetLines}줄`;
 
             if (room.status === "setup") {
-                currentWords = room.wordList;
-                currentFillMode = room.fillMode;
-                document.getElementById('setup-unit-name').innerText = room.unitName;
-                initSetupBoard();
-                window.showScreen('screen-setup');
+                if (!hasSetupBoard) {
+                    hasSetupBoard = true;
+                    currentWords = room.wordList || [];
+                    currentFillMode = room.fillMode || 'pool';
+                    document.getElementById('setup-unit-name').innerText = room.unitName || '';
+                    initSetupBoard();
+                    window.showScreen('screen-setup');
+                }
             }
 
             if (room.player1?.ready && room.player2?.ready && room.status === "setup") {
@@ -1763,28 +1850,47 @@
             currentGridSize = room.gridSize || 5;
             totalCells = currentGridSize * currentGridSize;
             currentTargetLines = room.targetLines || 3;
-            document.getElementById('game-target-text').innerText = `${currentTargetLines}줄`;
+            const targetEl = document.getElementById('game-target-text');
+            if (targetEl) targetEl.innerText = `${currentTargetLines}줄`;
 
-            if (room.status === "setup") {
-                currentWords = room.wordList;
-                currentFillMode = room.fillMode;
-                document.getElementById('setup-unit-name').innerText = room.unitName;
+            // 최초 1회만 단어 세팅 화면으로 이동
+            if (!hasSetupBoard) {
+                hasSetupBoard = true;
+                currentWords = room.wordList || [];
+                currentFillMode = room.fillMode || 'pool';
+                document.getElementById('setup-unit-name').innerText = room.unitName || '';
                 initSetupBoard();
                 window.showScreen('screen-setup');
+                return;
             }
 
-            if (room.calledWords) {
-                renderGameBoard(room.calledWords);
-                let myBingo = calculateBingo(room.calledWords, myBoard);
-                document.getElementById('my-bingo-count').innerText = `${myBingo}줄`;
+            // 준비 완료 후에는 게임 화면 유지 및 단어 호명/빙고 체크
+            if (isSetupCompleted) {
+                window.showScreen('screen-game');
+                const oppBingoCont = document.getElementById('opp-bingo-container');
+                if (oppBingoCont) oppBingoCont.style.display = 'none';
 
-                if (myInfo.id.startsWith('student_')) {
-                    updateDoc(roomRef, {
-                        [`players.${myInfo.id}.bingoCount`]: myBingo,
-                        [`players.${myInfo.id}.completed`]: (myBingo >= currentTargetLines)
-                    });
+                const calledWords = Array.isArray(room.calledWords) ? room.calledWords : [];
+                renderGameBoard(calledWords);
 
-                    if (myBingo >= currentTargetLines && !isGameOver) {
+                let myBingo = calculateBingo(calledWords, myBoard);
+                const myBingoCountEl = document.getElementById('my-bingo-count');
+                if (myBingoCountEl) myBingoCountEl.innerText = `${myBingo}줄`;
+
+                const isCompleted = (myBingo >= currentTargetLines);
+
+                // 점수 또는 완료 여부가 실제로 변경되었을 때만 updateDoc 호출 (무한 스냅샷 루프 방지)
+                if (myInfo.id && myInfo.id.startsWith('student_')) {
+                    if (myInfo.lastReportedBingo !== myBingo || myInfo.lastReportedCompleted !== isCompleted) {
+                        myInfo.lastReportedBingo = myBingo;
+                        myInfo.lastReportedCompleted = isCompleted;
+                        updateDoc(roomRef, {
+                            [`players.${myInfo.id}.bingoCount`]: myBingo,
+                            [`players.${myInfo.id}.completed`]: isCompleted
+                        }).catch(e => console.error("Error updating bingo status:", e));
+                    }
+
+                    if (isCompleted && !isGameOver) {
                         isGameOver = true;
                         saveBingoScore(room.unitName, myBingo, true);
                         showResult(`🎉 축하합니다! ${currentTargetLines}줄 빙고를 완성하셨습니다!`);
@@ -1801,7 +1907,8 @@
             });
         };
 
-        function renderGameBoard(calledWords) {
+        function renderGameBoard(calledWords = []) {
+            const wordsList = Array.isArray(calledWords) ? calledWords : [];
             const boardDiv = document.getElementById('game-board');
             boardDiv.innerHTML = '';
             boardDiv.style.gridTemplateColumns = `repeat(${currentGridSize}, 1fr)`;
@@ -1812,7 +1919,7 @@
                 const word = myBoard[i] || '';
                 cell.innerText = word;
 
-                const isCalled = calledWords.includes(word);
+                const isCalled = wordsList.includes(word);
                 if (isCalled && word !== "") {
                     cell.classList.add('marked');
                 }
@@ -1823,7 +1930,7 @@
                         const roomRef = doc(db, "bingo_rooms", myInfo.room);
                         const nextTurn = (myInfo.id === 'player1') ? 'player2' : 'player1';
                         await updateDoc(roomRef, {
-                            calledWords: [...calledWords, word],
+                            calledWords: [...wordsList, word],
                             currentTurn: nextTurn
                         });
                     };
@@ -1923,7 +2030,7 @@
                 const rankingDiv = document.getElementById('host-ranking');
                 rankingDiv.innerHTML = '';
 
-                const sorted = Object.values(players).sort((a,b) => b.bingoCount - a.bingoCount);
+                const sorted = Object.values(players).sort((a,b) => (b.bingoCount || 0) - (a.bingoCount || 0));
                 if (sorted.length === 0) {
                     rankingDiv.innerHTML = '<p class="text-xs text-slate-400 text-center py-6 font-bold">학생들이 접속 중입니다...</p>';
                     return;
@@ -1931,10 +2038,22 @@
 
                 sorted.forEach(p => {
                     const item = document.createElement('div');
+                    let statusBadge = '';
+                    if (p.completed) {
+                        statusBadge = '<span class="text-[11px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">완성 🏆</span>';
+                    } else if (p.ready) {
+                        statusBadge = '<span class="text-[11px] font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">준비 완료 ✅</span>';
+                    } else {
+                        statusBadge = '<span class="text-[11px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">배치 중 ⏳</span>';
+                    }
+
                     item.className = `flex items-center justify-between p-2 rounded-xl border ${p.completed ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-slate-50 border-slate-100'}`;
                     item.innerHTML = `
-                        <span class="text-xs font-black">${maskStudentName(p.name)}</span>
-                        <span class="text-xs font-bold">${p.bingoCount}줄 완성 ${p.completed ? '🏆' : ''}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black">${maskStudentName(p.name)}</span>
+                            ${statusBadge}
+                        </div>
+                        <span class="text-xs font-bold">${p.bingoCount || 0}줄</span>
                     `;
                     rankingDiv.appendChild(item);
                 });
