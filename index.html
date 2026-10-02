@@ -209,6 +209,16 @@
             opacity: 0.6;
         }
 
+        .word-btn.used {
+            background: #F1F5F9;
+            color: #94A3B8;
+            border-color: #E2E8F0;
+            cursor: not-allowed;
+            opacity: 0.55;
+            pointer-events: none;
+            transform: none;
+        }
+
         /* 커스텀 스크롤바 */
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
@@ -1589,40 +1599,31 @@
         // ════════════════════════════════════════════════════════════════════
         function initSetupBoard() {
             myBoard = new Array(totalCells).fill("");
-            const poolDiv = document.getElementById('word-pool');
-            poolDiv.innerHTML = '';
 
-            const readyBtn = document.getElementById('ready-btn');
-            if (readyBtn) {
-                readyBtn.disabled = false;
-                readyBtn.innerText = "준비 완료! 🚀";
-            }
+            // 칸 수와 단어 수에 맞춰 단어당 최대 배치 횟수 계산 (골고루 배치 강제)
+            maxWordUsage = (currentWords && currentWords.length > 0) ? Math.max(1, Math.ceil(totalCells / currentWords.length)) : 1;
 
             const isTypeMode = (currentFillMode === 'type');
             const helpEl = document.getElementById('setup-help-text');
             if (helpEl) {
-                if (isTypeMode) {
-                    helpEl.innerText = "칸을 클릭하여 영단어를 직접 입력하세요.";
+                let ruleMsg = "";
+                if (totalCells >= currentWords.length) {
+                    ruleMsg = "모든 단어를 최소 1번씩 골고루 배치하세요. (중복 불가)";
                 } else {
-                    helpEl.innerText = "단어를 클릭하거나 자동 랜덤 배치 버튼을 누르세요.";
+                    ruleMsg = `단어당 최대 ${maxWordUsage}번까지 골고루 배치할 수 있습니다.`;
+                }
+                if (isTypeMode) {
+                    helpEl.innerText = `칸을 클릭하여 단어를 직접 입력하세요. (${ruleMsg})`;
+                } else {
+                    helpEl.innerText = `단어를 클릭하거나 자동 랜덤 배치 버튼을 누르세요. (${ruleMsg})`;
                 }
             }
-
-            // 단어 보관함 채우기
-            currentWords.forEach(word => {
-                const btn = document.createElement('button');
-                btn.className = 'word-btn';
-                btn.innerText = word;
-                btn.draggable = true;
-                btn.ondragstart = (e) => e.dataTransfer.setData("text", word);
-                btn.onclick = () => processAddWord(word);
-                poolDiv.appendChild(btn);
-            });
 
             renderSetupBoard();
         }
 
         window.randomFillBoard = () => {
+            if (!currentWords || currentWords.length === 0) return showAlert("단어 목록이 없습니다.");
             const shuffled = [...currentWords].sort(() => 0.5 - Math.random());
             for (let i = 0; i < totalCells; i++) {
                 myBoard[i] = shuffled[i % shuffled.length];
@@ -1638,10 +1639,22 @@
             for (let i = 0; i < totalCells; i++) {
                 const cell = document.createElement('div');
                 cell.className = 'bingo-cell';
-                cell.innerText = myBoard[i] || '';
+                if (myBoard[i]) {
+                    cell.innerText = myBoard[i];
+                    cell.classList.add('marked');
+                } else {
+                    cell.innerText = '';
+                }
 
                 if (currentFillMode === 'type') {
-                    cell.onclick = () => openInputModal(i);
+                    cell.onclick = () => {
+                        if (myBoard[i]) {
+                            myBoard[i] = "";
+                            renderSetupBoard();
+                        } else {
+                            openInputModal(i);
+                        }
+                    };
                 } else {
                     cell.ondragover = (e) => { e.preventDefault(); cell.classList.add('drag-over'); };
                     cell.ondragleave = () => cell.classList.remove('drag-over');
@@ -1660,20 +1673,78 @@
                 }
                 boardDiv.appendChild(cell);
             }
+
+            // 단어 보관함 동기화 (풀 모드일 때 각 단어 사용량 표시 및 한도 초과 시 비활성화)
+            const poolDiv = document.getElementById('word-pool');
+            if (poolDiv) {
+                poolDiv.innerHTML = '';
+                currentWords.forEach(word => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    const usedCount = myBoard.filter(w => w && w.toLowerCase() === word.toLowerCase()).length;
+                    const isLimitReached = (usedCount >= maxWordUsage);
+
+                    if (isLimitReached) {
+                        btn.className = 'word-btn used';
+                        btn.disabled = true;
+                        btn.innerText = (maxWordUsage > 1) ? `${word} (${usedCount}/${maxWordUsage})` : `${word} ✓`;
+                    } else {
+                        btn.className = 'word-btn';
+                        btn.draggable = true;
+                        btn.ondragstart = (e) => e.dataTransfer.setData("text", word);
+                        btn.onclick = () => processAddWord(word);
+                        btn.innerText = (maxWordUsage > 1) ? `${word} (${usedCount}/${maxWordUsage})` : word;
+                    }
+                    poolDiv.appendChild(btn);
+                });
+            }
+
+            // 준비 완료 버튼 동적 갱신
+            const readyBtn = document.getElementById('ready-btn');
+            const filledCount = myBoard.filter(w => w && w.trim() !== "").length;
+            if (readyBtn) {
+                if (filledCount === totalCells) {
+                    readyBtn.disabled = false;
+                    readyBtn.className = "flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-md transition cursor-pointer";
+                    readyBtn.innerText = "준비 완료! 🚀";
+                } else {
+                    readyBtn.disabled = true;
+                    readyBtn.className = "flex-1 py-3.5 bg-slate-200 text-slate-400 font-black text-sm rounded-xl cursor-not-allowed shadow-none transition";
+                    readyBtn.innerText = `단어 채우기 (${filledCount}/${totalCells})`;
+                }
+            }
         }
 
         window.processAddWord = (word, targetIndex = -1) => {
-            if (targetIndex !== -1) {
-                myBoard[targetIndex] = word;
-                renderSetupBoard();
-                return;
+            if (!word) return false;
+            const cleanWord = String(word).trim();
+            const matchedWord = currentWords.find(w => w.toLowerCase() === cleanWord.toLowerCase()) || cleanWord;
+
+            // 중복 횟수 계산 (targetIndex 칸의 기존 단어가 같은 단어라면 교체이므로 제외)
+            const currentCount = myBoard.filter((w, idx) => idx !== targetIndex && w && w.toLowerCase() === matchedWord.toLowerCase()).length;
+            if (currentCount >= maxWordUsage) {
+                if (maxWordUsage === 1) {
+                    showAlert(`'${matchedWord}' 단어는 이미 빙고판에 배치되었습니다. (중복 불가)`);
+                } else {
+                    showAlert(`'${matchedWord}' 단어는 골고루 배치를 위해\n최대 ${maxWordUsage}번까지만 넣을 수 있습니다.`);
+                }
+                return false;
             }
+
+            if (targetIndex !== -1) {
+                myBoard[targetIndex] = matchedWord;
+                renderSetupBoard();
+                return true;
+            }
+
             const emptyIdx = myBoard.indexOf("");
             if (emptyIdx !== -1) {
-                myBoard[emptyIdx] = word;
+                myBoard[emptyIdx] = matchedWord;
                 renderSetupBoard();
+                return true;
             } else {
                 showAlert("빙고판이 꽉 찼습니다! 수정하려면 지울 칸을 클릭하세요.");
+                return false;
             }
         };
 
@@ -1689,20 +1760,49 @@
         };
         window.confirmInputWord = () => {
             const w = document.getElementById('cell-word-input').value.trim();
-            if (targetCellIndex !== -1) {
-                myBoard[targetCellIndex] = w;
-                renderSetupBoard();
+            if (!w) {
+                closeInputModal();
+                return;
             }
-            closeInputModal();
+
+            // 단원 단어 목록 대조
+            const matched = currentWords.find(item => item.toLowerCase() === w.toLowerCase());
+            if (!matched) {
+                return showAlert("❌ 해당 단원에 등록되지 않은 단어이거나 철자가 틀렸습니다.\n단어 목록을 확인하고 다시 입력해주세요!");
+            }
+
+            const ok = processAddWord(matched, targetCellIndex);
+            if (ok) {
+                closeInputModal();
+            }
         };
 
         window.setReady = async () => {
-            if (myBoard.includes("")) {
-                return showAlert("빙고판의 모든 칸을 채워주세요!");
+            const filledCount = myBoard.filter(w => w && w.trim() !== "").length;
+            if (filledCount < totalCells || myBoard.includes("")) {
+                return showAlert(`빙고판의 모든 칸(${totalCells}칸)을 채워주세요! (현재 ${filledCount}/${totalCells})`);
             }
+
+            // 제공된 단어 필수 사용 검사 (단어 수가 칸 수 이하일 때 모든 단어 최소 1회 사용 강제)
+            if (totalCells >= currentWords.length) {
+                const missingWords = currentWords.filter(word => !myBoard.some(w => w && w.toLowerCase() === word.toLowerCase()));
+                if (missingWords.length > 0) {
+                    return showAlert(`⚠️ 제공된 모든 단어를 최소 한 번씩은 꼭 사용해야 합니다!\n\n[빠진 단어]\n${missingWords.slice(0, 6).join(', ')}${missingWords.length > 6 ? ' 외 ' + (missingWords.length - 6) + '개' : ''}`);
+                }
+            }
+
+            // 단어별 최대 허용 횟수 초과 검사
+            for (const word of currentWords) {
+                const count = myBoard.filter(w => w && w.toLowerCase() === word.toLowerCase()).length;
+                if (count > maxWordUsage) {
+                    return showAlert(`'${word}' 단어가 허용 횟수(${maxWordUsage}번)를 초과하여 ${count}번 배치되었습니다.\n골고루 다시 배치해주세요.`);
+                }
+            }
+
             const btn = document.getElementById('ready-btn');
             if (btn) {
                 btn.disabled = true;
+                btn.className = "flex-1 py-3.5 bg-slate-400 text-white font-black text-sm rounded-xl shadow-none transition";
                 btn.innerText = "준비 완료됨! (대기중)";
             }
             isSetupCompleted = true;
