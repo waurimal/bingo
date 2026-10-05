@@ -1118,6 +1118,12 @@
 
         // 화면 전환 유틸
         window.showScreen = (screenId) => {
+            if (screenId === 'screen-admin') {
+                if (!window.WaurimalAuth || !window.WaurimalAuth.isAuthenticated()) {
+                    window.openAdminLoginModal();
+                    return;
+                }
+            }
             const screens = ['screen-home', 'screen-waiting', 'screen-setup', 'screen-rps', 'screen-game', 'screen-host', 'screen-result', 'screen-admin'];
             screens.forEach(id => {
                 const el = document.getElementById(id);
@@ -1277,6 +1283,11 @@
         };
 
         window.openAdminLoginModal = () => {
+            if (window.WaurimalAuth && window.WaurimalAuth.isAuthenticated()) {
+                window.showScreen('screen-admin');
+                switchAdminTab('units');
+                return;
+            }
             document.getElementById('adminPwInput').value = '';
             document.getElementById('modal-admin-auth').classList.remove('hidden');
         };
@@ -1287,11 +1298,14 @@
         window.verifyAdmin = async () => {
             const pw = document.getElementById('adminPwInput').value.trim();
             try {
-                const snap = await getDoc(doc(db, "bingo_settings", "main"));
-                const realPw = (snap.exists() && snap.data().password) ? snap.data().password : "1234";
+                let realPw = "1234";
+                try {
+                    const snap = await getDoc(doc(db, "bingo_settings", "main"));
+                    if (snap.exists() && snap.data().password) realPw = snap.data().password;
+                } catch(e) {}
 
-                const waurimalPw = localStorage.getItem('waurimal_admin_pw');
-                if (pw === realPw || pw === "1234" || pw === "wauri1234" || pw === "0000" || (waurimalPw && pw === waurimalPw)) {
+                const authOk = window.WaurimalAuth ? window.WaurimalAuth.authenticate(pw) : (pw === realPw || pw === (localStorage.getItem('waurimal_admin_pw') || "1234"));
+                if (authOk) {
                     closeAdminLoginLoginModalSafe();
                     window.showScreen('screen-admin');
                     switchAdminTab('units');
@@ -1386,7 +1400,11 @@
             if (np.length < 4) return showAlert("새 비밀번호는 4자리 이상이어야 합니다.");
             try {
                 await setDoc(doc(db, "bingo_settings", "main"), { password: np }, { merge: true });
-                localStorage.setItem('waurimal_admin_pw', np);
+                if (window.WaurimalAuth) {
+                    window.WaurimalAuth.setPw(np);
+                } else {
+                    localStorage.setItem('waurimal_admin_pw', np);
+                }
                 document.getElementById('newAdminPw').value = '';
                 showAlert("비밀번호가 변경되었습니다.");
             } catch(e) {
@@ -2306,6 +2324,9 @@
                 else if (rank === 3) rankBadge = '<span class="text-xl">🥉</span>';
 
                 const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleDateString('ko-KR', { year: '2-digit', month: 'numeric', day: 'numeric' }) : '-';
+                const safeName = window.WaurimalSanitize ? window.WaurimalSanitize(item.maskedName || '') : (item.maskedName || '');
+                const safeUnit = window.WaurimalSanitize ? window.WaurimalSanitize(item.unit || '') : (item.unit || '');
+                const safeSchool = window.WaurimalSanitize ? window.WaurimalSanitize(item.schoolInfo || '') : (item.schoolInfo || '');
 
                 return `
                     <div class="flex items-center justify-between p-2.5 bg-white border border-emerald-100 rounded-xl hover:border-emerald-300 transition shadow-2xs">
@@ -2315,11 +2336,11 @@
                             </div>
                             <div>
                                 <div class="font-black text-slate-800 text-xs flex items-center gap-1.5">
-                                    <span>${item.maskedName}</span>
-                                    <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold">${item.unit}</span>
+                                    <span>${safeName}</span>
+                                    <span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold">${safeUnit}</span>
                                 </div>
                                 <div class="text-[10px] text-slate-400 font-medium">
-                                    ${item.schoolInfo ? item.schoolInfo + ' • ' : ''}${dateStr}
+                                    ${safeSchool ? safeSchool + ' • ' : ''}${dateStr}
                                 </div>
                             </div>
                         </div>
@@ -2345,17 +2366,22 @@
             }
 
             const sorted = [...hofAllScores].sort((a,b) => b.score - a.score);
-            tbody.innerHTML = sorted.map((s, idx) => `
+            tbody.innerHTML = sorted.map((s, idx) => {
+                const safeName = window.WaurimalSanitize ? window.WaurimalSanitize(s.maskedName || '') : (s.maskedName || '');
+                const safeSchool = window.WaurimalSanitize ? window.WaurimalSanitize(s.schoolInfo || '-') : (s.schoolInfo || '-');
+                const safeUnit = window.WaurimalSanitize ? window.WaurimalSanitize(s.unit || '') : (s.unit || '');
+                return `
                 <tr class="hover:bg-emerald-50/50 transition">
                     <td class="p-2.5 font-bold">${idx + 1}</td>
-                    <td class="p-2.5 font-black text-slate-800">${s.maskedName}</td>
-                    <td class="p-2.5 font-semibold text-slate-600">${s.schoolInfo || '-'}</td>
-                    <td class="p-2.5 font-semibold text-emerald-700">${s.unit}</td>
+                    <td class="p-2.5 font-black text-slate-800">${safeName}</td>
+                    <td class="p-2.5 font-semibold text-slate-600">${safeSchool}</td>
+                    <td class="p-2.5 font-semibold text-emerald-700">${safeUnit}</td>
                     <td class="p-2.5 font-medium text-slate-500">${s.mode === '1v1' ? '1:1대결' : '반전체'}</td>
                     <td class="p-2.5 font-black text-emerald-600">${s.score.toLocaleString()}점 (${s.lines}줄)</td>
                     <td class="p-2.5 text-slate-400 text-[11px]">${s.timestamp ? new Date(s.timestamp).toLocaleDateString('ko-KR') : '-'}</td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
         }
 
         window.downloadBingoScoresCSV = () => {
