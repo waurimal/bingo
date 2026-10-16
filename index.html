@@ -1298,13 +1298,13 @@
         window.verifyAdmin = async () => {
             const pw = document.getElementById('adminPwInput').value.trim();
             try {
-                let realPw = "1234";
+                let realPw = "4657";
                 try {
                     const snap = await getDoc(doc(db, "bingo_settings", "main"));
                     if (snap.exists() && snap.data().password) realPw = snap.data().password;
                 } catch(e) {}
 
-                const authOk = window.WaurimalAuth ? window.WaurimalAuth.authenticate(pw) : (pw === realPw || pw === (localStorage.getItem('waurimal_admin_pw') || "1234"));
+                const authOk = window.WaurimalAuth ? window.WaurimalAuth.authenticate(pw) : (pw === realPw || pw === (localStorage.getItem('waurimal_admin_pw') || "4657"));
                 if (authOk) {
                     closeAdminLoginLoginModalSafe();
                     window.showScreen('screen-admin');
